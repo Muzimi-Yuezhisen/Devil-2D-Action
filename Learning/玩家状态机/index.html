@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>玩家状态机 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+<nav>
+  <span class="mod-badge">模块 2/8</span>
+  <div class="section">
+    <h2>本模块</h2>
+    <a href="#overview">总览</a>
+    <a href="#diagram">状态切换图</a>
+    <a href="#scripts">脚本清单</a>
+  </div>
+  <div class="section">
+    <h2>核心脚本</h2>
+    <a href="#player">Player.cs</a>
+    <a href="#playerstate">PlayerState.cs</a>
+    <a href="#groundstate">Player_GroundState</a>
+    <a href="#airedstate">Player_AiredState</a>
+  </div>
+  <div class="section">
+    <h2>地面 / 空中</h2>
+    <a href="#idle">Player_IdleState</a>
+    <a href="#move">Player_MoveState</a>
+    <a href="#jump">Player_JumpState</a>
+    <a href="#fall">Player_FallState</a>
+    <a href="#wallslide">Player_WallSlideState</a>
+    <a href="#walljump">Player_WallJumpState</a>
+  </div>
+  <div class="section">
+    <h2>特殊状态</h2>
+    <a href="#dash">Player_DashState</a>
+    <a href="#basicattack">Player_BasicAttackState</a>
+    <a href="#jumpattack">Player_JumpAttackState</a>
+    <a href="#counterattack">Player_CounterAttackState</a>
+    <a href="#dead">Player_DeadState</a>
+  </div>
+  <div class="section">
+    <h2>其他</h2>
+    <a href="#faq">常见问题</a>
+    <a href="../README.md">← 总索引</a>
+  </div>
+</nav>
+<main>
+  <div class="back"><a href="../README.md">← Learning 总索引</a></div>
+  <h1>玩家状态机</h1>
+  <p class="subtitle">Player 输入 → 状态切换 → 移动 / 攻击 / 冲刺 · 依赖模块 1 有限状态机</p>
+
+  <div class="module-nav">
+    <a href="../有限状态机/index.html">1 有限状态机</a>
+    <a href="../玩家状态机/index.html" class="current">2 玩家状态机</a>
+    <a href="../关卡和摄像机设置/index.html">3 关卡和摄像机</a>
+    <a href="../敌人状态机/index.html">4 敌人状态机</a>
+    <a href="../战斗系统/index.html">5 战斗系统</a>
+    <a href="../属性系统/index.html">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html">7 技能树与UI</a>
+    <a href="../核心技能系统/index.html">8 核心技能</a>
+  </div>
+
+  <section id="overview">
+    <h2>模块总览</h2>
+    <div class="card highlight">
+      <p><strong>解决什么问题？</strong> 把玩家所有行为（走、跳、墙滑、冲刺、连击、弹反、死亡）拆成独立状态，每帧只运行一个状态的 Update，切换时统一 Enter / Exit。</p>
+      <ul>
+        <li><code>Player</code> 在 <code>Awake</code> 里创建全部状态实例，<code>Start</code> 时 <code>stateMachine.Init(idleState)</code></li>
+        <li><code>PlayerState</code> 注入 input、skills；<strong>每个状态</strong>的 Update 都会检测 Dash 键</li>
+        <li>地面 / 空中有中间基类 <code>Player_GroundState</code>、<code>Player_AiredState</code>，复用跳跃、攻击、坠落检测</li>
+        <li>继承链：<code>EntityState</code> → <code>PlayerState</code> → Ground / Aired / 具体状态</li>
+      </ul>
+    </div>
+    <div class="note">碰撞检测（<code>groundDetected</code> / <code>wallDetected</code>）、<code>SetVelocity</code>、击退等来自 <code>Entity</code> 基类（战斗系统模块）。弹反判定在 <code>Player_Combat</code>。</div>
+  </section>
+
+  <section id="diagram">
+    <h2>主要状态切换（简图）</h2>
+    <div class="flow">Player.Update()
+  → Entity.HandleCollisionDetection()   // 接地 / 贴墙
+  → stateMachine.UpdateActiveState()
+  → currentState.Update()
+       → 检测输入、速度、timer
+       → stateMachine.ChangeState(新状态)
+
+idle ⇄ move                    （GroundState：无输入 / 有水平输入）
+  ↓ Jump 键
+jump → fall → idle / wallSlide
+wallSlide → Jump → wallJump → fall（Enter 后立即切 fall）
+任意状态（CanDash 通过）+ Dash 键 → dashState → idle / fall / wallSlide（撞墙）
+Ground + Attack → basicAttack → idle（或连击 EnterAttackStateWithDelay）
+Ground + Counter → counterAttack → idle
+Air + Attack → jumpAttack → idle
+HP ≤ 0 → EntityDeath → deadState（禁用输入、关闭物理）</div>
+  </section>
+
+  <section id="scripts">
+    <h2>相关脚本清单</h2>
+    <table>
+      <tr><th>文件</th><th>路径</th><th>角色</th></tr>
+      <tr><td>Player.cs</td><td>Assets/Scripts/Player/</td><td>玩家 MonoBehaviour：创建状态、输入、参数</td></tr>
+      <tr><td>PlayerState.cs</td><td>Assets/Scripts/StateMachine/</td><td>玩家状态抽象基类：全局 Dash 检测</td></tr>
+      <tr><td>Player_GroundState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>地面中间基类：跳、攻、弹反、坠坑</td></tr>
+      <tr><td>Player_AiredState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>空中中间基类：空中移动、下落攻击</td></tr>
+      <tr><td>Player_IdleState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>站立待机</td></tr>
+      <tr><td>Player_MoveState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>地面行走</td></tr>
+      <tr><td>Player_JumpState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>起跳上升段</td></tr>
+      <tr><td>Player_FallState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>下落 / 空中</td></tr>
+      <tr><td>Player_WallSlideState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>贴墙滑行</td></tr>
+      <tr><td>Player_WallJumpState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>蹬墙跳（瞬时 Enter）</td></tr>
+      <tr><td>Player_DashState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>冲刺（无重力）</td></tr>
+      <tr><td>Player_BasicAttackState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>地面三连击 + 预输入连击</td></tr>
+      <tr><td>Player_JumpAttackState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>下落攻击（砸地）</td></tr>
+      <tr><td>Player_CounterAttackState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>弹反姿态 + recovery</td></tr>
+      <tr><td>Player_DeadState.cs</td><td>Assets/Scripts/Player/PlayerStates/</td><td>死亡（锁输入与物理）</td></tr>
+    </table>
+  </section>
+
+  <section id="player">
+    <h2>Player.cs</h2>
+    <div class="path">Assets/Scripts/Player/Player.cs · 继承 Entity</div>
+    <span class="tag script">MonoBehaviour</span>
+    <span class="tag">入口层</span>
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>OnPlayerDeath</td><td>static 事件；死亡时通知敌人等订阅者</td></tr>
+      <tr><td>skillManager</td><td>Player_SkillManager；Dash 冷却等</td></tr>
+      <tr><td>input</td><td>PlayerInputSet；OnEnable 注册回调</td></tr>
+      <tr><td>idleState ~ counterAttackState</td><td>各状态实例，供 ChangeState 引用</td></tr>
+      <tr><td>attackVelocity[]</td><td>地面连击每段施加的水平/垂直位移</td></tr>
+      <tr><td>jumpAttackVelocity</td><td>下落攻击起跳位移</td></tr>
+      <tr><td>attackVelocityDuration</td><td>攻击位移持续时长（秒）</td></tr>
+      <tr><td>comboResetTime</td><td>连击中断后重置到第 1 段的间隔</td></tr>
+      <tr><td>queuedAttackCo</td><td>连击延迟切状态的协程引用</td></tr>
+      <tr><td>moveSpeed / jumpForce</td><td>地面移动与跳跃力度</td></tr>
+      <tr><td>wallJumpForce</td><td>蹬墙跳速度 Vector2</td></tr>
+      <tr><td>inAirMoveMultiplier</td><td>空中水平移动衰减系数</td></tr>
+      <tr><td>wallSlideSlowMultiplier</td><td>墙滑时 Y 速度衰减</td></tr>
+      <tr><td>dashDuration / dashSpeed</td><td>冲刺时长与速度</td></tr>
+      <tr><td>moveInput</td><td>Movement 输入 Vector2（每帧由 Input 回调更新）</td></tr>
+    </table>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Unity 生命周期，Entity 初始化后</td><td>Find UI；new PlayerInputSet；GetComponent SkillManager；创建全部 State 实例</td></tr>
+      <tr><td>Start()</td><td>首帧前</td><td>base.Start()；stateMachine.Init(idleState) 进入待机</td></tr>
+      <tr><td>SlowDownEntityCo(duration, slowMultiplier)</td><td>Entity_StatusHandler 冰冻等调用 SlowDownEntity 时</td><td>备份 moveSpeed、jumpForce、anim.speed、wallJumpForce、jumpAttackVelocity、attackVelocity[]；按 (1-slowMultiplier) 缩放；WaitForSeconds 后全部还原</td></tr>
+      <tr><td>EntityDeath()</td><td>Entity_Health.Die() → entity.EntityDeath()</td><td>base.EntityDeath()；触发 OnPlayerDeath；ChangeState(deadState)</td></tr>
+      <tr><td>EnterAttackStateWithDelay()</td><td>BasicAttackState 连击预输入时 HandleStateExit</td><td>若已有协程则 Stop；Start EnterAttackStateWithDelayCo</td></tr>
+      <tr><td>EnterAttackStateWithDelayCo()</td><td>EnterAttackStateWithDelay 内部</td><td>WaitForEndOfFrame 后 ChangeState(basicAttackState)，让 Animator Bool 先 false 再 true</td></tr>
+      <tr><td>OnEnable()</td><td>对象启用时</td><td>input.Enable()；Movement performed/canceled 写 moveInput；L 键 ToggleSkillTreeUI</td></tr>
+      <tr><td>OnDisable()</td><td>对象禁用时</td><td>input.Disable()</td></tr>
+    </table>
+  </section>
+
+  <section id="playerstate">
+    <h2>PlayerState.cs</h2>
+    <div class="path">Assets/Scripts/StateMachine/PlayerState.cs · 继承 EntityState</div>
+    <span class="tag script">abstract class</span>
+    <h3>字段（protected）</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>player</td><td>回指 Player，读 moveInput、各 State 引用、参数</td></tr>
+      <tr><td>input</td><td>PlayerInputSet，检测 Dash / Jump / Attack 等</td></tr>
+      <tr><td>skills</td><td>Player_SkillManager；Dash 技能冷却</td></tr>
+      <tr><td>（继承）anim / rb / stats / stateMachine / stateTimer / triggerCalled</td><td>来自 EntityState；构造函数注入</td></tr>
+    </table>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>PlayerState(player, stateMachine, animBoolName)</td><td>各具体状态 new 时</td><td>保存 player、input、skills；从 player 取 anim、rb、stats</td></tr>
+      <tr><td>Update()</td><td>每帧 stateMachine.UpdateActiveState</td><td>base.Update()（减 stateTimer、UpdateAnimationParameters）；若 Dash 键且 CanDash() → SetSkillOnCooldown + ChangeState(dashState)</td></tr>
+      <tr><td>UpdateAnimationParameters()</td><td>base.Update 内每帧</td><td>anim.SetFloat("yVelocity", rb.linearVelocity.y) 驱动 JumpFall 混合树</td></tr>
+      <tr><td>CanDash()</td><td>Update 内 Dash 检测前</td><td>skills.dash.CanUseSkill()；非 wallDetected；当前状态不是 dashState；全满足才 true</td></tr>
+    </table>
+  </section>
+
+  <section id="groundstate">
+    <h2>Player_GroundState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_GroundState.cs · 继承 PlayerState</div>
+    <span class="tag script">中间基类</span>
+    <span class="tag">地面</span>
+    <h3>字段</h3>
+    <p>无额外字段，仅继承 PlayerState。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_GroundState(...)</td><td>Idle / Move 构造时</td><td>转发 base(player, stateMachine, animBoolName)</td></tr>
+      <tr><td>Update()</td><td>每帧（Idle、Move 会先 base.Update）</td><td>base.Update()（含 Dash）；yVelocity&lt;0 且非接地 → fallState（防坠坑滑行）；Jump → jumpState；Attack → basicAttackState；CounterAttack → counterAttackState</td></tr>
+    </table>
+  </section>
+
+  <section id="airedstate">
+    <h2>Player_AiredState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_AiredState.cs · 继承 PlayerState</div>
+    <span class="tag script">中间基类</span>
+    <span class="tag">空中</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_AiredState(...)</td><td>Jump / Fall 构造时</td><td>转发 base</td></tr>
+      <tr><td>Update()</td><td>每帧 Jump / Fall 会先 base.Update</td><td>base.Update()；有水平输入 → SetVelocity(moveInput.x × moveSpeed × inAirMoveMultiplier, y)；Attack → jumpAttackState</td></tr>
+    </table>
+  </section>
+
+  <section id="idle">
+    <h2>Player_IdleState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_IdleState.cs · 继承 Player_GroundState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: idle</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_IdleState(...)</td><td>Player.Awake</td><td>base(..., "idle")</td></tr>
+      <tr><td>Enter()</td><td>切入 idle 时</td><td>base.Enter()（anim Bool true）；水平速度置 0，保留 y</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()（Ground 检测 + Dash）；贴墙且朝墙走则 return；有 moveInput.x → moveState</td></tr>
+    </table>
+  </section>
+
+  <section id="move">
+    <h2>Player_MoveState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_MoveState.cs · 继承 Player_GroundState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: move</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_MoveState(...)</td><td>Player.Awake</td><td>base(..., "move")</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()；无输入或 wallDetected → idleState；否则 SetVelocity(moveInput.x × moveSpeed, y)</td></tr>
+    </table>
+  </section>
+
+  <section id="jump">
+    <h2>Player_JumpState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_JumpState.cs · 继承 Player_AiredState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: JumpFall</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_JumpState(...)</td><td>Player.Awake</td><td>base(..., "JumpFall")</td></tr>
+      <tr><td>Enter()</td><td>Ground 按 Jump 切入</td><td>base.Enter()；SetVelocity(x, jumpForce) 起跳</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()（空中移动 + 下落攻击）；yVelocity&lt;0 且当前不是 jumpAttackState → fallState</td></tr>
+    </table>
+  </section>
+
+  <section id="fall">
+    <h2>Player_FallState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_FallState.cs · 继承 Player_AiredState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: JumpFall</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_FallState(...)</td><td>Player.Awake</td><td>base(..., "JumpFall")</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()；groundDetected → idleState；wallDetected → wallSlideState</td></tr>
+    </table>
+  </section>
+
+  <section id="wallslide">
+    <h2>Player_WallSlideState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_WallSlideState.cs · 继承 PlayerState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: wallSlide</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_WallSlideState(...)</td><td>Player.Awake</td><td>base(..., "wallSlide")</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()；HandleWallSlide()；Jump → wallJumpState；离墙 → fallState；接地 → idleState（若输入与 facing 相反则 Flip）</td></tr>
+      <tr><td>HandleWallSlide()</td><td>Update 内每帧</td><td>按住下键：正常 y 速度；否则 y × wallSlideSlowMultiplier 慢滑</td></tr>
+    </table>
+  </section>
+
+  <section id="walljump">
+    <h2>Player_WallJumpState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_WallJumpState.cs · 继承 PlayerState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: JumpFall</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_WallJumpState(...)</td><td>Player.Awake</td><td>base(..., "JumpFall")</td></tr>
+      <tr><td>Enter()</td><td>墙滑按 Jump</td><td>base.Enter()；SetVelocity(wallJumpForce.x × -facingDir, wallJumpForce.y)；<strong>同一帧内</strong> ChangeState(fallState)</td></tr>
+      <tr><td>Update()</td><td>Enter 后立即 fall，通常很少执行</td><td>base.Update()；wallDetected → wallSlideState</td></tr>
+    </table>
+  </section>
+
+  <section id="dash">
+    <h2>Player_DashState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_DashState.cs · 继承 PlayerState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: dash</span>
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>originalGravityScale</td><td>Enter 时备份 rb.gravityScale，Exit 恢复</td></tr>
+      <tr><td>dashDir</td><td>冲刺方向：有输入取 sign(moveInput.x)，否则 facingDir</td></tr>
+    </table>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_DashState(...)</td><td>Player.Awake</td><td>base(..., "dash")</td></tr>
+      <tr><td>Enter()</td><td>PlayerState 检测到 Dash</td><td>base.Enter()；算 dashDir；stateTimer = dashDuration；gravityScale = 0</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()（Dash 在 dash 内被 CanDash 拦住）；CancelDashIfNeeded()；SetVelocity(dashSpeed × dashDir, 0)；timer&lt;0 → 接地 idle / 空中 fall</td></tr>
+      <tr><td>Exit()</td><td>切出 dash</td><td>base.Exit()；速度清零；恢复 gravityScale</td></tr>
+      <tr><td>CancelDashIfNeeded()</td><td>Update 内每帧</td><td>撞墙时：接地 → idleState，空中 → wallSlideState</td></tr>
+    </table>
+  </section>
+
+  <section id="basicattack">
+    <h2>Player_BasicAttackState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_BasicAttackState.cs · 继承 PlayerState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: basicAttack</span>
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>attackVelocityTimer</td><td>攻击位移剩余时间</td></tr>
+      <tr><td>FirstComboIndex / comboIndex</td><td>连击段数，从 1 开始</td></tr>
+      <tr><td>comboLimit</td><td>最大段数，与 attackVelocity.Length 对齐</td></tr>
+      <tr><td>lastTimeAttacked</td><td>上次 Exit 时间，用于 comboResetTime</td></tr>
+      <tr><td>attackDir</td><td>本段攻击朝向（输入或 facing）</td></tr>
+      <tr><td>comboAttackQueued</td><td>动画结束前是否预输入了下一段</td></tr>
+    </table>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_BasicAttackState(...)</td><td>Player.Awake</td><td>base(..., "basicAttack")；若 comboLimit ≠ attackVelocity.Length 则同步并 LogWarning</td></tr>
+      <tr><td>Enter()</td><td>Ground Attack 或连击延迟切入</td><td>base.Enter()；comboAttackQueued=false；ResetComboIndexIfNeeded()；SyncAttackSpeed()；算 attackDir；anim basicAttackIndex；ApplyAttackVelocity()</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()；HandleAttackVelocity()；Attack 按下 → QueueNextAttack()；triggerCalled → HandleStateExit()</td></tr>
+      <tr><td>Exit()</td><td>切出攻击</td><td>base.Exit()；lastTimeAttacked=Time.time；comboIndex++</td></tr>
+      <tr><td>HandleStateExit()</td><td>动画事件 triggerCalled 后</td><td>有连击队列 → anim Bool false + EnterAttackStateWithDelay()；否则 idleState</td></tr>
+      <tr><td>QueueNextAttack()</td><td>攻击中再按 Attack</td><td>comboIndex &lt; comboLimit 时 comboAttackQueued=true</td></tr>
+      <tr><td>HandleAttackVelocity()</td><td>Update 每帧</td><td>attackVelocityTimer -= deltaTime；timer&lt;0 时水平速度置 0</td></tr>
+      <tr><td>ApplyAttackVelocity()</td><td>Enter 时</td><td>取 attackVelocity[comboIndex-1]；设 timer=attackVelocityDuration；SetVelocity(x×attackDir, y)</td></tr>
+      <tr><td>ResetComboIndexIfNeeded()</td><td>Enter 时</td><td>距上次攻击超过 comboResetTime 或 comboIndex&gt;comboLimit → comboIndex=1</td></tr>
+    </table>
+  </section>
+
+  <section id="jumpattack">
+    <h2>Player_JumpAttackState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_JumpAttackState.cs · 继承 PlayerState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: jumpAttack</span>
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>touchedGround</td><td>是否已第一次接地（区分上升段与砸地）</td></tr>
+    </table>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_JumpAttackState(...)</td><td>Player.Awake</td><td>base(..., "jumpAttack")</td></tr>
+      <tr><td>Enter()</td><td>空中 Attack</td><td>base.Enter()；touchedGround=false；SetVelocity(jumpAttackVelocity.x × facingDir, jumpAttackVelocity.y)</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()；首次接地 → touchedGround=true、Trigger jumpAttackTrigger、水平速度 0；triggerCalled 且接地 → idleState</td></tr>
+    </table>
+  </section>
+
+  <section id="counterattack">
+    <h2>Player_CounterAttackState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_CounterAttackState.cs · 继承 PlayerState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: counterAttack</span>
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>combat</td><td>Player_Combat；弹反 Overlap 与 recovery 时长</td></tr>
+      <tr><td>counteredSomebody</td><td>Enter 时是否成功弹反到敌人</td></tr>
+    </table>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_CounterAttackState(...)</td><td>Player.Awake</td><td>base(..., "counterAttack")；GetComponent Player_Combat</td></tr>
+      <tr><td>Enter()</td><td>Ground CounterAttack</td><td>base.Enter()；stateTimer=GetCounterRecoveryDuration()；counteredSomebody=CounterAttackPerformed()；anim counterAttackPerformed Bool</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()；SetVelocity(0, y) 定身；triggerCalled → idle；timer&lt;0 且未弹反到 → idle</td></tr>
+    </table>
+  </section>
+
+  <section id="dead">
+    <h2>Player_DeadState.cs</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_DeadState.cs · 继承 PlayerState</div>
+    <span class="tag script">具体状态</span>
+    <span class="tag">animBool: dead</span>
+    <h3>字段</h3>
+    <p>无额外字段。</p>
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Player_DeadState(...)</td><td>Player.Awake</td><td>base(..., "dead")</td></tr>
+      <tr><td>Enter()</td><td>EntityDeath → ChangeState</td><td>base.Enter()；input.Disable()；rb.simulated=false 停止物理</td></tr>
+    </table>
+  </section>
+
+  <section id="faq">
+    <h2>常见问题</h2>
+    <div class="card">
+      <h3>为什么连击不直接 ChangeState(basicAttackState)，要用 EnterAttackStateWithDelay？</h3>
+      <p>Animator 的 Bool 参数在同一状态内从 true→false→true 时，有时不会重新触发过渡。HandleStateExit 先把 <code>animBoolName</code> 设为 false，等一帧（WaitForEndOfFrame）再切回 basicAttackState，强制 Animator 读到 false 后再 Enter 设 true，连击动画才能正常衔接。</p>
+    </div>
+    <div class="card">
+      <h3>Dash 为什么在 PlayerState 基类里检测，而不是单独一个「全局状态」？</h3>
+      <p>所有继承 PlayerState 的状态都会先跑 base.Update()，因此在 idle、move、fall、攻击等绝大多数状态下按 Dash 都能响应。CanDash() 排除贴墙、冷却中、已在 dash；dash 状态中 CanDash 返回 false，避免连按。技能冷却在切换时由 <code>skills.dash.SetSkillOnCooldown()</code> 处理。</p>
+    </div>
+    <div class="card">
+      <h3>wallJump 的 Enter 里为什么立刻 ChangeState(fallState)？</h3>
+      <p>蹬墙跳只需要 Enter 里施加一次 wallJumpForce 速度；之后行为与下落相同（空中移动、贴墙再滑等），复用 fallState 的 Update 即可。wallJumpState 的 Update 仅保留「若仍贴墙则回 wallSlide」的兜底逻辑。</p>
+    </div>
+  </section>
+
+  <p class="footer">模块 2/8 · 玩家状态机</p>
+</main>
+</body>
+</html>

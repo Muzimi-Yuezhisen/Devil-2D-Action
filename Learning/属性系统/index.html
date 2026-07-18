@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>属性系统 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+<nav>
+  <span class="mod-badge">模块 6/8</span>
+  <div class="section">
+    <h2>导航</h2>
+    <a href="#overview">总览</a>
+    <a href="#formulas">公式速查</a>
+    <a href="#scripts">脚本清单</a>
+    <a href="#stat">Stat.cs</a>
+    <a href="#groups">属性分组</a>
+    <a href="#stat-type">StatType</a>
+    <a href="#setup">Stat_SetupSO</a>
+    <a href="#entity-stats">Entity_Stats</a>
+    <a href="#buff">Object_Buff</a>
+    <a href="#faq">常见问题</a>
+    <a href="../README.md">← 总索引</a>
+  </div>
+</nav>
+<main>
+  <div class="back"><a href="../README.md">← Learning 总索引</a></div>
+  <h1>属性系统</h1>
+  <p class="subtitle">Stat / Modifier · 四组属性 · 物理/元素/护甲/闪避公式 · Stat_SetupSO 初始化 · Buff 临时加成 · 对照 struct.pdf New Stat System</p>
+
+  <div class="module-nav">
+    <a href="../有限状态机/index.html">1 有限状态机</a>
+    <a href="../玩家状态机/index.html">2 玩家状态机</a>
+    <a href="../关卡和摄像机设置/index.html">3 关卡和摄像机</a>
+    <a href="../敌人状态机/index.html">4 敌人状态机</a>
+    <a href="../战斗系统/index.html">5 战斗系统</a>
+    <a href="../属性系统/index.html" class="current">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html">7 技能树与UI</a>
+    <a href="../核心技能系统/index.html">8 核心技能</a>
+  </div>
+
+  <!-- OVERVIEW -->
+  <section id="overview">
+    <h2>模块总览</h2>
+    <div class="card highlight">
+      <p><strong>这个模块解决什么问题？</strong></p>
+      <ul>
+        <li>把角色所有数值封装成可序列化的 <code>Stat</code>（基础值 + 可叠加的 Modifier 列表）</li>
+        <li>按 Major / Offense / Defense / Resource 四组组织属性，挂在 <code>Entity_Stats</code> 上</li>
+        <li>提供战斗用的<strong>衍生公式</strong>：物理伤害、元素伤害、护甲减免、闪避、最大生命等</li>
+        <li>用 <code>Stat_SetupSO</code> 配置初始 base 值；用 <code>Object_Buff</code> 临时 Add/Remove Modifier</li>
+      </ul>
+    </div>
+    <p>你可以把这个模块想象成三层：</p>
+    <table>
+      <tr><th>层</th><th>职责</th><th>代表脚本</th></tr>
+      <tr><td>数据层</td><td>单个数值的存储与 lazy 求和</td><td><code>Stat.cs</code></td></tr>
+      <tr><td>分组层</td><td>把 Stat 按用途归类；SO 存默认值</td><td><code>Stat_*Group.cs</code>、<code>Stat_SetupSO.cs</code></td></tr>
+      <tr><td>计算层</td><td>主属性衍生 + 战斗公式 + Buff 路由</td><td><code>Entity_Stats.cs</code>、<code>Object_Buff.cs</code></td></tr>
+    </table>
+    <div class="flow">Stat_SetupSO（ScriptableObject 配置初始 base 值）
+  → Entity_Stats.ApplyDefaultStatSetup() 写入各 Stat.SetBaseValue()
+  → 战斗中 Entity_Combat 调用 GetPhysicalDamage / GetElementalDamage 等
+  → Entity_Health 调用 GetArmorMitigation / GetEvasion / GetMaxHealth
+  → Object_Buff 碰撞后 AddModifier(source=buffName) → 等待 duration → RemoveModifier → Destroy</div>
+    <div class="note">
+      <strong>主属性衍生（代码中硬编码，不经过 Modifier）：</strong><br>
+      力量 Strength → 每点 +1 物理伤害，+0.5% 暴击伤害<br>
+      敏捷 Agility → 每点 +0.5% 闪避，+0.3% 暴击率<br>
+      智力 Intelligence → 每点 +1 元素伤害，+0.5% 全元素抗性<br>
+      体质 Vitality → 每点 +5 最大生命，+1 护甲
+    </div>
+  </section>
+
+  <!-- FORMULA SUMMARY -->
+  <section id="formulas">
+    <h2>公式速查卡</h2>
+    <div class="card highlight">
+      <h3>Stat 最终值</h3>
+      <p><code>GetValue() = baseValue + Σ modifier.value</code>（lazy 缓存，Modifier 变动后下次 GetValue 重算）</p>
+    </div>
+    <div class="card">
+      <h3>GetPhysicalDamage(out isCrit, scaleFactor=1)</h3>
+      <div class="flow">totalBaseDamage = damage + strength
+critChance       = critChance + agility × 0.3
+critPower        = (critPower + strength × 0.5) / 100
+isCrit           = Random(0, 100) &lt; critChance
+finalDamage      = isCrit ? totalBaseDamage × critPower : totalBaseDamage
+return           = finalDamage × scaleFactor</div>
+    </div>
+    <div class="card">
+      <h3>GetElementalDamage(out element, scaleFactor=1)</h3>
+      <div class="flow">取 fire / ice / lightning 中最高的一项为主元素（100% 伤害）
+其余两项各贡献 50%（主元素自身不计入 50% 部分）
+finalDamage = 主元素 + intelligence + 次元素×0.5 之和
+若最高元素 ≤ 0 → element=None, return 0
+return = finalDamage × scaleFactor</div>
+    </div>
+    <div class="card">
+      <h3>GetElementalResistance(element)</h3>
+      <div class="flow">baseResistance = fireRes / iceRes / lightningRes（按元素）
+bonusResistance = intelligence × 0.5
+resistance = Clamp(base + bonus, 0, 75) / 100
+return 0~0.75 的小数（75% 上限）</div>
+    </div>
+    <div class="card">
+      <h3>GetArmorMitigation(armorReduction)</h3>
+      <div class="flow">totalArmor     = armor + vitality
+effectiveArmor = totalArmor × Clamp(1 - armorReduction, 0, 1)
+mitigation     = effectiveArmor / (effectiveArmor + 100)
+return         = Clamp(mitigation, 0, 0.85)   // 最大 85% 减伤</div>
+    </div>
+    <div class="card">
+      <h3>GetArmorReduction / GetEvasion / GetMaxHealth</h3>
+      <div class="flow">GetArmorReduction() = armorReduction / 100          // 穿透比例 0~1
+GetEvasion()        = Clamp(evasion + agility×0.5, 0, 85)  // 百分比 0~85
+GetMaxHealth()      = maxHealth + vitality × 5</div>
+    </div>
+  </section>
+
+  <!-- SCRIPTS LIST -->
+  <section id="scripts">
+    <h2>相关脚本清单</h2>
+    <table>
+      <tr><th>文件</th><th>路径</th><th>角色</th></tr>
+      <tr><td>Stat.cs</td><td>Assets/Scripts/StatSystem/Stat.cs</td><td>单个属性：base + Modifier 列表 + lazy GetValue</td></tr>
+      <tr><td>Stat_MajorGroup.cs</td><td>Assets/Scripts/StatSystem/</td><td>四大主属性分组</td></tr>
+      <tr><td>Stat_offenseGroup.cs</td><td>Assets/Scripts/StatSystem/</td><td>进攻属性分组</td></tr>
+      <tr><td>Stat_DefenseGroup.cs</td><td>Assets/Scripts/StatSystem/</td><td>防御属性分组</td></tr>
+      <tr><td>Stat_ResourceGroup.cs</td><td>Assets/Scripts/StatSystem/</td><td>生命/回复分组</td></tr>
+      <tr><td>Stat_SetupSO.cs</td><td>Assets/Scripts/StatSystem/</td><td>ScriptableObject：所有属性初始 base 值</td></tr>
+      <tr><td>Entity_Stats.cs</td><td>Assets/Scripts/Entity/</td><td>挂在 Player/Enemy；公式 + GetStatByType + 初始化</td></tr>
+      <tr><td>StatType.cs</td><td>Assets/Scripts/Enum/</td><td>属性类型枚举，供 Buff / GetStatByType 使用</td></tr>
+      <tr><td>Object_Buff.cs</td><td>Assets/Scripts/InteractiveObjects/</td><td>场景可拾取 Buff；临时 Modifier</td></tr>
+    </table>
+  </section>
+
+  <!-- Stat.cs -->
+  <section id="stat">
+    <h2>Stat.cs</h2>
+    <div class="path">Assets/Scripts/StatSystem/Stat.cs</div>
+    <span class="tag script">Serializable 类</span>
+    <p>每个游戏数值（伤害、护甲、力量等）都是一个 <code>Stat</code> 实例。Inspector 里可见 <code>baseValue</code> 和 <code>modifiers</code> 列表；运行时通过 <code>GetValue()</code> 得到最终值。</p>
+
+    <h3>Stat 私有字段</h3>
+    <table>
+      <tr><th>字段</th><th>类型</th><th>作用</th></tr>
+      <tr><td>baseValue</td><td>float</td><td>基础值；由 <code>SetBaseValue</code> 或 <code>ApplyDefaultStatSetup</code> 写入，不含 Modifier</td></tr>
+      <tr><td>modifiers</td><td>List&lt;StatModifier&gt;</td><td>所有加成/减益条目；同 source 可有多条</td></tr>
+      <tr><td>needToCalculate</td><td>bool</td><td>脏标记：Modifier 或 base 变动后为 true，下次 GetValue 重算</td></tr>
+      <tr><td>finalValue</td><td>float</td><td>缓存的上次计算结果，避免每帧重复求和</td></tr>
+    </table>
+
+    <h3>StatModifier（Stat 的内部类）</h3>
+    <span class="tag script">[Serializable] public class</span>
+    <table>
+      <tr><th>成员</th><th>类型</th><th>作用</th></tr>
+      <tr><td>value</td><td>float</td><td>加成数值，可正可负；直接<strong>加算</strong>到 baseValue 上（非百分比乘算）</td></tr>
+      <tr><td>source</td><td>string</td><td>来源标识字符串；<code>RemoveModifier(source)</code> 时按此匹配并移除<strong>所有</strong>同 source 的条目</td></tr>
+      <tr><td>StatModifier(value, source)</td><td>构造函数</td><td>创建一条 Modifier 并赋值 value、source</td></tr>
+    </table>
+
+    <h3>Stat 方法</h3>
+    <table>
+      <tr><th>方法</th><th>签名</th><th>做什么</th></tr>
+      <tr>
+        <td>AddModifier</td>
+        <td>(float value, string source)</td>
+        <td>new 一个 StatModifier 加入 modifiers 列表；设置 <code>needToCalculate = true</code>。Buff、装备、技能等临时加成均走此入口。</td>
+      </tr>
+      <tr>
+        <td>RemoveModifier</td>
+        <td>(string source)</td>
+        <td><code>modifiers.RemoveAll(m => m.source == source)</code>，移除该 source 的<strong>全部</strong> Modifier；标记需重算。</td>
+      </tr>
+      <tr>
+        <td>GetValue</td>
+        <td>() → float</td>
+        <td>若 <code>needToCalculate</code> 为 true，调用 <code>GetFinalValue()</code> 写入缓存并清脏标记；返回 <code>finalValue</code>。对外读取属性的唯一公开入口。</td>
+      </tr>
+      <tr>
+        <td>SetBaseValue</td>
+        <td>(float value)</td>
+        <td>直接设置 baseValue（表达式体：<code>baseValue = value</code>）。<strong>注意：</strong>当前实现未设 needToCalculate，若 base 在运行时改动且已有缓存，需手动触发重算或先改 Modifier 逻辑。</td>
+      </tr>
+      <tr>
+        <td>GetFinalValue</td>
+        <td>() → float · private</td>
+        <td>实际求和：<code>finalValue = baseValue</code>，遍历 modifiers 逐项 <code>+= modifier.value</code>，返回结果。公式：<strong>baseValue + Σ modifier.value</strong>。</td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- GROUPS -->
+  <section id="groups">
+    <h2>属性分组（Serializable 类）</h2>
+    <p>四组均为 <code>[Serializable]</code> 普通类（非 MonoBehaviour），作为 <code>Entity_Stats</code> 的 public 字段，可在 Inspector 展开编辑各 Stat 的 baseValue。</p>
+
+    <h3>Stat_MajorGroup · 主属性</h3>
+    <div class="path">Assets/Scripts/StatSystem/Stat_MajorGroup.cs</div>
+    <table>
+      <tr><th>Stat 字段</th><th>中文</th><th>说明与代码衍生</th></tr>
+      <tr><td>strength</td><td>力量</td><td>每 1 点 → +1 物理伤害（GetPhysicalDamage）；+0.5% 暴击伤害（critPower 加成部分）</td></tr>
+      <tr><td>agility</td><td>敏捷</td><td>每 1 点 → +0.5% 闪避（GetEvasion）；+0.3% 暴击率（GetPhysicalDamage）</td></tr>
+      <tr><td>intelligence</td><td>智力</td><td>每 1 点 → +1 元素伤害（GetElementalDamage）；+0.5% 全元素抗性（GetElementalResistance）</td></tr>
+      <tr><td>vitality</td><td>体质</td><td>每 1 点 → +5 最大生命（GetMaxHealth）；+1 护甲（GetArmorMitigation，与 defense.armor 1:1 相加）</td></tr>
+    </table>
+
+    <h3>Stat_offenseGroup · 进攻属性</h3>
+    <div class="path">Assets/Scripts/StatSystem/Stat_offenseGroup.cs</div>
+    <table>
+      <tr><th>Stat 字段</th><th>中文</th><th>说明</th></tr>
+      <tr><td>attackSpeed</td><td>攻速</td><td>攻击动画/冷却缩放用；当前 Entity_Stats 公式中未参与伤害计算，可给动画或技能系统读取 GetValue()</td></tr>
+      <tr><td>damage</td><td>物理伤害</td><td>物理攻击 base 伤害；与 strength 相加得 totalBaseDamage</td></tr>
+      <tr><td>critPower</td><td>暴击伤害</td><td>百分比数值（如 150 表示 150%）；与力量加成后除以 100 得暴击倍率</td></tr>
+      <tr><td>critChance</td><td>暴击率</td><td>百分比 0~100；与敏捷×0.3 相加后，Random(0,100) &lt; critChance 判定暴击</td></tr>
+      <tr><td>armorReduction</td><td>护甲穿透</td><td>百分比；GetArmorReduction() 除以 100 后传入目标 GetArmorMitigation</td></tr>
+      <tr><td>fireDamage</td><td>火焰伤害</td><td>元素伤害三项之一；最高项为主元素 100%，其余各 50%</td></tr>
+      <tr><td>iceDamage</td><td>冰霜伤害</td><td>同上</td></tr>
+      <tr><td>lightningDamage</td><td>雷电伤害</td><td>同上</td></tr>
+    </table>
+
+    <h3>Stat_DefenseGroup · 防御属性</h3>
+    <div class="path">Assets/Scripts/StatSystem/Stat_DefenseGroup.cs</div>
+    <table>
+      <tr><th>Stat 字段</th><th>中文</th><th>说明</th></tr>
+      <tr><td>armor</td><td>护甲</td><td>物理减伤基础值；与 vitality 相加后参与 armor/(armor+100) 公式</td></tr>
+      <tr><td>evasion</td><td>闪避</td><td>百分比；与敏捷×0.5 相加，上限 85%，Entity_Health.AttackEvaded 用 Random &lt; GetEvasion()</td></tr>
+      <tr><td>fireRes</td><td>火焰抗性</td><td>百分比；GetElementalResistance(Fire) 的 base 部分</td></tr>
+      <tr><td>iceRes</td><td>冰霜抗性</td><td>百分比；GetElementalResistance(Ice) 的 base 部分</td></tr>
+      <tr><td>lightningRes</td><td>雷电抗性</td><td>百分比；GetElementalResistance(Lightning) 的 base 部分</td></tr>
+    </table>
+
+    <h3>Stat_ResourceGroup · 资源属性</h3>
+    <div class="path">Assets/Scripts/StatSystem/Stat_ResourceGroup.cs</div>
+    <table>
+      <tr><th>Stat 字段</th><th>中文</th><th>说明</th></tr>
+      <tr><td>maxHealth</td><td>最大生命</td><td>生命上限 base；GetMaxHealth 中与 vitality×5 相加</td></tr>
+      <tr><td>healthRegen</td><td>生命回复</td><td>每秒回复量；Entity_Health.RegenerateHealth 通过 GetValue() 读取（不参与 Entity_Stats 衍生公式）</td></tr>
+    </table>
+  </section>
+
+  <!-- StatType -->
+  <section id="stat-type">
+    <h2>StatType 枚举</h2>
+    <div class="path">Assets/Scripts/Enum/StatType.cs</div>
+    <span class="tag enum">enum</span>
+    <p>与 <code>Entity_Stats.GetStatByType</code> 的 switch 一一对应；Buff、技能升级等通过此枚举定位要修改的 Stat。</p>
+    <table>
+      <tr><th>枚举值</th><th>对应 Stat 路径</th><th>分组</th></tr>
+      <tr><td>MaxHealth</td><td>resources.maxHealth</td><td>Resource</td></tr>
+      <tr><td>HealthRegen</td><td>resources.healthRegen</td><td>Resource</td></tr>
+      <tr><td>Strength</td><td>major.strength</td><td>Major</td></tr>
+      <tr><td>Agility</td><td>major.agility</td><td>Major</td></tr>
+      <tr><td>Intelligence</td><td>major.intelligence</td><td>Major</td></tr>
+      <tr><td>Vitality</td><td>major.vitality</td><td>Major</td></tr>
+      <tr><td>AttackSpeed</td><td>offense.attackSpeed</td><td>Offense</td></tr>
+      <tr><td>Damage</td><td>offense.damage</td><td>Offense</td></tr>
+      <tr><td>CritChange</td><td>offense.critChance</td><td>Offense · 注意拼写为 Change 非 Chance</td></tr>
+      <tr><td>CritPower</td><td>offense.critPower</td><td>Offense</td></tr>
+      <tr><td>ArmorReduction</td><td>offense.armorReduction</td><td>Offense</td></tr>
+      <tr><td>FireDamage</td><td>offense.fireDamage</td><td>Offense</td></tr>
+      <tr><td>IceDamage</td><td>offense.iceDamage</td><td>Offense</td></tr>
+      <tr><td>LightningDamage</td><td>offense.lightningDamage</td><td>Offense</td></tr>
+      <tr><td>Armor</td><td>defense.armor</td><td>Defense</td></tr>
+      <tr><td>Evasion</td><td>defense.evasion</td><td>Defense</td></tr>
+      <tr><td>IceResistance</td><td>defense.iceRes</td><td>Defense</td></tr>
+      <tr><td>FireResistance</td><td>defense.fireRes</td><td>Defense</td></tr>
+      <tr><td>LightningResistance</td><td>defense.lightningRes</td><td>Defense</td></tr>
+    </table>
+    <div class="note danger">
+      <strong>default 分支：</strong>未实现的 StatType 会 <code>Debug.LogWarning</code> 并返回 <code>null</code>。Buff 若配错类型会导致 NullReference。
+    </div>
+  </section>
+
+  <!-- Stat_SetupSO -->
+  <section id="setup">
+    <h2>Stat_SetupSO.cs</h2>
+    <div class="path">Assets/Scripts/StatSystem/Stat_SetupSO.cs</div>
+    <span class="tag data">ScriptableObject</span>
+    <p>菜单：<strong>Create → RPG Setup → Default Stat Setup</strong>。存所有属性的<strong>初始 base 值</strong>（float 字段，非 Stat 对象）。在 Entity_Stats 组件上右键 <strong>Update Default Stat Setup</strong> 或代码调用 <code>ApplyDefaultStatSetup()</code> 写入各 Stat。</p>
+
+    <h3>全部 public 字段</h3>
+    <table>
+      <tr><th>Header</th><th>字段</th><th>默认值</th><th>写入目标</th></tr>
+      <tr><td rowspan="2">Resources</td><td>maxHealth</td><td>100</td><td>resources.maxHealth.SetBaseValue</td></tr>
+      <tr><td>healthRegen</td><td>0</td><td>resources.healthRegen.SetBaseValue</td></tr>
+      <tr><td rowspan="5">Offense - Physical Damage</td><td>attackSpeed</td><td>1</td><td>offense.attackSpeed</td></tr>
+      <tr><td>damage</td><td>10</td><td>offense.damage</td></tr>
+      <tr><td>critChance</td><td>0</td><td>offense.critChance</td></tr>
+      <tr><td>critPower</td><td>150</td><td>offense.critPower</td></tr>
+      <tr><td>armorReduction</td><td>0</td><td>offense.armorReduction</td></tr>
+      <tr><td rowspan="3">Offense - Elemental Damage</td><td>fireDamage</td><td>0</td><td>offense.fireDamage</td></tr>
+      <tr><td>iceDamage</td><td>0</td><td>offense.iceDamage</td></tr>
+      <tr><td>lightningDamage</td><td>0</td><td>offense.lightningDamage</td></tr>
+      <tr><td rowspan="2">Defense - Physical Damage</td><td>armor</td><td>0</td><td>defense.armor</td></tr>
+      <tr><td>evasion</td><td>0</td><td>defense.evasion</td></tr>
+      <tr><td rowspan="3">Defense - Elemental Damage</td><td>fireResistance</td><td>0</td><td>defense.fireRes</td></tr>
+      <tr><td>iceResistance</td><td>0</td><td>defense.iceRes</td></tr>
+      <tr><td>lightningResistance</td><td>0</td><td>defense.lightningRes</td></tr>
+      <tr><td rowspan="4">Major Stats</td><td>strength</td><td>0</td><td>major.strength</td></tr>
+      <tr><td>agility</td><td>0</td><td>major.agility</td></tr>
+      <tr><td>intelligence</td><td>0</td><td>major.intelligence</td></tr>
+      <tr><td>vitality</td><td>0</td><td>major.vitality</td></tr>
+    </table>
+    <div class="note">SO 字段名与 Stat 字段名略有不同（如 <code>fireResistance</code> → <code>defense.fireRes</code>），映射在 <code>ApplyDefaultStatSetup</code> 中写死。</div>
+  </section>
+
+  <!-- Entity_Stats -->
+  <section id="entity-stats">
+    <h2>Entity_Stats.cs</h2>
+    <div class="path">Assets/Scripts/Entity/Entity_Stats.cs · 挂在 Player / Enemy 上</div>
+    <span class="tag script">MonoBehaviour</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>字段</th><th>类型</th><th>作用</th></tr>
+      <tr><td>defaultStatSetup</td><td>Stat_SetupSO</td><td>默认属性配置资产引用；ApplyDefaultStatSetup 的数据源</td></tr>
+      <tr><td>resources</td><td>Stat_ResourceGroup</td><td>最大生命、生命回复</td></tr>
+      <tr><td>offense</td><td>Stat_offenseGroup</td><td>攻速、物理/元素伤害、暴击、穿透</td></tr>
+      <tr><td>defense</td><td>Stat_DefenseGroup</td><td>护甲、闪避、元素抗性</td></tr>
+      <tr><td>major</td><td>Stat_MajorGroup</td><td>力量、敏捷、智力、体质</td></tr>
+    </table>
+
+    <h3>方法（含完整公式说明）</h3>
+    <table>
+      <tr><th>方法</th><th>参数 / 返回值</th><th>做什么（含公式）</th></tr>
+      <tr>
+        <td>GetPhysicalDamage</td>
+        <td>out bool isCrit, float scaleFactor=1 → float</td>
+        <td>
+          <strong>物理伤害 + 暴击判定。</strong><br>
+          1. <code>totalBaseDamage = offense.damage.GetValue() + major.strength.GetValue()</code><br>
+          2. <code>critChance = offense.critChance.GetValue() + major.agility.GetValue() × 0.3</code><br>
+          3. <code>critPower = (offense.critPower.GetValue() + major.strength.GetValue() × 0.5) / 100</code><br>
+          4. <code>isCrit = Random.Range(0, 100) &lt; critChance</code><br>
+          5. <code>finalDamage = isCrit ? totalBaseDamage × critPower : totalBaseDamage</code><br>
+          6. <code>return finalDamage × scaleFactor</code><br>
+          Entity_Combat 默认 scaleFactor=1；元素侧单独用 0.6 缩放。
+        </td>
+      </tr>
+      <tr>
+        <td>GetElementalDamage</td>
+        <td>out ElementType element, float scaleFactor=1 → float</td>
+        <td>
+          <strong>元素伤害：最高元素为主，其余各 50%，再加智力 flat 加成。</strong><br>
+          1. 读 fire / ice / lightning 三项 GetValue()，以及 <code>bonusElementalDamage = intelligence.GetValue()</code><br>
+          2. 取三者最大值为主元素，<code>element</code> 设为 Fire / Ice / Lightning<br>
+          3. 若 <code>highestDamage ≤ 0</code> → <code>element = None</code>，return 0<br>
+          4. 非主元素各贡献 <code>该元素值 × 0.5</code>（主元素对应项为 0）<br>
+          5. <code>finalDamage = highestDamage + bonusElementalDamage + weakerElementsDamage</code><br>
+          6. <code>return finalDamage × scaleFactor</code>（PerformAttack 中 scaleFactor=0.6）
+        </td>
+      </tr>
+      <tr>
+        <td>GetElementalResistance</td>
+        <td>ElementType element → float</td>
+        <td>
+          <strong>指定元素的抗性，返回 0~0.75 的小数。</strong><br>
+          1. switch element → <code>baseResistance</code> = fireRes / iceRes / lightningRes 的 GetValue()<br>
+          2. <code>bonusResistance = major.intelligence.GetValue() × 0.5</code><br>
+          3. <code>resistance = baseResistance + bonusResistance</code><br>
+          4. <code>finalResistance = Clamp(resistance, 0, 75) / 100</code>（硬上限 75%）<br>
+          Entity_Health 用 <code>damage × (1 - finalResistance)</code> 减免元素伤害。
+        </td>
+      </tr>
+      <tr>
+        <td>GetArmorMitigation</td>
+        <td>float armorReduction → float</td>
+        <td>
+          <strong>护甲减伤比例，返回 0~0.85。</strong><br>
+          1. <code>totalArmor = defense.armor.GetValue() + major.vitality.GetValue()</code>（体质 1:1 加护甲）<br>
+          2. <code>reductionMultiplier = Clamp(1 - armorReduction, 0, 1)</code>（armorReduction 为 0~1 穿透比例）<br>
+          3. <code>effectiveArmor = totalArmor × reductionMultiplier</code><br>
+          4. <code>mitigation = effectiveArmor / (effectiveArmor + 100)</code>（递减回报，100 为 magic number）<br>
+          5. <code>return Clamp(mitigation, 0, 0.85)</code>（最大 85% 物理减伤）<br>
+          攻击方传入的 armorReduction 来自 <code>GetArmorReduction()</code>。
+        </td>
+      </tr>
+      <tr>
+        <td>GetArmorReduction</td>
+        <td>() → float</td>
+        <td>
+          <strong>攻击方护甲穿透比例。</strong><br>
+          <code>return offense.armorReduction.GetValue() / 100</code><br>
+          例如 Inspector 里 armorReduction=30 → 返回 0.3，目标有效护甲 ×0.7。
+        </td>
+      </tr>
+      <tr>
+        <td>GetEvasion</td>
+        <td>() → float</td>
+        <td>
+          <strong>闪避概率（百分比数值，非小数）。</strong><br>
+          1. <code>totalEvasion = defense.evasion.GetValue() + major.agility.GetValue() × 0.5</code><br>
+          2. <code>return Clamp(totalEvasion, 0, 85)</code>（上限 85%）<br>
+          Entity_Health：<code>Random.Range(0, 100) &lt; GetEvasion()</code> 则攻击被闪避。
+        </td>
+      </tr>
+      <tr>
+        <td>GetMaxHealth</td>
+        <td>() → float</td>
+        <td>
+          <strong>最大生命值。</strong><br>
+          <code>return resources.maxHealth.GetValue() + major.vitality.GetValue() × 5</code><br>
+          Entity_Health.Awake 用其初始化 currentHealth。
+        </td>
+      </tr>
+      <tr>
+        <td>GetStatByType</td>
+        <td>StatType type → Stat</td>
+        <td>
+          <strong>按枚举返回对应 Stat 引用</strong>，供 Buff 等系统 AddModifier / RemoveModifier。<br>
+          switch 覆盖 StatType 全部 19 个值；default 打 Warning 并 return null。<br>
+          不复制 Stat，返回同一实例，Modifier 会直接影响该实体属性。
+        </td>
+      </tr>
+      <tr>
+        <td>ApplyDefaultStatSetup</td>
+        <td>() · [ContextMenu]</td>
+        <td>
+          <strong>把 defaultStatSetup SO 中所有 float 写入各 Stat.SetBaseValue。</strong><br>
+          若 defaultStatSetup 为 null → Log 并 return。<br>
+          顺序：resources → major → offense（含三元素）→ defense（含三抗性）。<br>
+          仅改 baseValue，<strong>不清除</strong>已有 Modifier。Inspector 右键组件名可触发。
+        </td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- Object_Buff -->
+  <section id="buff">
+    <h2>Object_Buff.cs + Buff 类</h2>
+    <div class="path">Assets/Scripts/InteractiveObjects/Object_Buff.cs</div>
+    <span class="tag script">MonoBehaviour</span>
+    <p>场景中可拾取的 Buff 物体：玩家碰撞后临时加属性，持续时间结束后移除并销毁自身。</p>
+
+    <h3>Buff（Serializable 数据类）</h3>
+    <table>
+      <tr><th>字段</th><th>类型</th><th>作用</th></tr>
+      <tr><td>type</td><td>StatType</td><td>要修改的属性类型，经 GetStatByType 定位 Stat</td></tr>
+      <tr><td>value</td><td>float</td><td>AddModifier 的加成值（加算到 base 上）</td></tr>
+    </table>
+    <p>Inspector 中 <code>buffs</code> 数组可配置多条，一次拾取同时加多个属性。</p>
+
+    <h3>Object_Buff · SerializeField</h3>
+    <table>
+      <tr><th>字段</th><th>类型</th><th>默认值</th><th>作用</th></tr>
+      <tr><td>buffs</td><td>Buff[]</td><td>—</td><td>Buff 列表：type + value</td></tr>
+      <tr><td>buffDuration</td><td>float</td><td>4</td><td>Buff 持续秒数，WaitForSeconds 后移除</td></tr>
+      <tr><td>canBeUsed</td><td>bool</td><td>true</td><td>是否可被触发；生效中设为 false 防止重复碰撞</td></tr>
+      <tr><td>buffName</td><td>string</td><td>—</td><td>作为 AddModifier / RemoveModifier 的 <strong>source</strong> 字符串，同物体多条 Buff 共用同一 source</td></tr>
+      <tr><td>floatSpeed</td><td>float</td><td>1</td><td>上下漂浮 Sin 曲线速度系数</td></tr>
+      <tr><td>floatRange</td><td>float</td><td>0.1</td><td>漂浮 Y 轴振幅</td></tr>
+    </table>
+
+    <h3>Object_Buff · 私有字段</h3>
+    <table>
+      <tr><th>字段</th><th>作用</th></tr>
+      <tr><td>sr</td><td>子物体 SpriteRenderer；Buff 生效时 color 设为 clear 隐藏</td></tr>
+      <tr><td>statsToModify</td><td>碰撞到的 Entity_Stats 引用</td></tr>
+      <tr><td>startPosition</td><td>Awake 时记录的初始位置，Update 漂浮基准点</td></tr>
+    </table>
+
+    <h3>Object_Buff · 方法</h3>
+    <table>
+      <tr><th>方法</th><th>做什么</th></tr>
+      <tr>
+        <td>Awake()</td>
+        <td><code>GetComponentInChildren&lt;SpriteRenderer&gt;()</code>；<code>startPosition = transform.position</code>。</td>
+      </tr>
+      <tr>
+        <td>Update()</td>
+        <td>漂浮动画：<code>yOffset = Sin(Time.time × floatSpeed) × floatRange</code>；<code>position = startPosition + (0, yOffset, 0)</code>。仅视觉，不影响碰撞体逻辑位置（若 Collider 在父物体则一起动）。</td>
+      </tr>
+      <tr>
+        <td>OnTriggerEnter2D(Collider2D collision)</td>
+        <td>若 <code>canBeUsed == false</code> 直接 return。取 collision 上 <code>Entity_Stats</code>，<code>StartCoroutine(BuffCo(buffDuration))</code>。需碰撞体 IsTrigger + 对方带 Rigidbody2D。</td>
+      </tr>
+      <tr>
+        <td>BuffCo(float duration)</td>
+        <td>
+          1. <code>canBeUsed = false</code>；<code>sr.color = Color.clear</code><br>
+          2. 遍历 buffs：<code>statsToModify.GetStatByType(buff.type).AddModifier(buff.value, buffName)</code><br>
+          3. <code>yield return WaitForSeconds(duration)</code><br>
+          4. 再遍历 buffs：<code>RemoveModifier(buffName)</code>（按 source 移除该 Buff 物体加上的全部 Modifier）<br>
+          5. <code>Destroy(gameObject)</code>
+        </td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <h2>常见问题</h2>
+    <div class="card">
+      <h4>Modifier 的 source 是什么？有什么用？</h4>
+      <p><code>source</code> 是任意字符串标签，标识「这条加成从哪来」。<code>RemoveModifier(source)</code> 会删除<strong>所有</strong> <code>modifier.source == source</code> 的条目。Object_Buff 用 Inspector 里的 <code>buffName</code> 作为 source，这样 duration 结束时一次 Remove 就能清掉该 Buff 物体加上的全部属性。不同系统应使用不同 source（如 <code>"FirePotion"</code>、<code>"SkillTree_Damage"</code>），避免误删他人 Modifier。</p>
+    </div>
+    <div class="card">
+      <h4>ApplyDefaultStatSetup 什么时候调用？会清 Buff 吗？</h4>
+      <p>在 Editor 中：选中带 Entity_Stats 的对象 → 组件右上角 ⋮ → <strong>Update Default Stat Setup</strong>（ContextMenu）。或在 Play 前/代码里手动调用。它只执行各 Stat 的 <code>SetBaseValue</code>，<strong>不会</strong>清除 modifiers 列表。若需要「完全重置」，需额外 RemoveModifier 或重建 Stat 列表。记得先把 <code>defaultStatSetup</code> 字段拖入 SO 资产。</p>
+    </div>
+    <div class="card">
+      <h4>主属性加成和 Modifier 有什么区别？</h4>
+      <p>Modifier 通过 AddModifier 加在单个 Stat 的 base 上（如直接 +10 damage）。主属性（strength/agility 等）的衍生加成写在 <code>Entity_Stats</code> 的各个 GetXxx 公式里，<strong>不自动</strong>变成 Modifier。例如 +5 力量不会出现在 offense.damage 的 modifiers 里，但在 GetPhysicalDamage 里会 +5 伤害。给主属性加 Buff 应使用 StatType.Strength 等对 major.strength AddModifier。</p>
+    </div>
+    <div class="card">
+      <h4>暴击率 / 暴击伤害 / 抗性 / 穿透的单位？</h4>
+      <p>Inspector 与 SO 里多为「百分比整数」：critChance=15 表示 15%；critPower=150 表示 150% 暴击倍率（代码里 /100）。armorReduction、evasion、各 Res 同理为百分比。GetArmorMitigation 返回 0~1 小数；GetElementalResistance 返回 0~0.75 小数；GetEvasion 返回 0~85 的百分比数值。</p>
+    </div>
+    <div class="card">
+      <h4>Buff 拾取后 NullReference</h4>
+      <p>检查：① 碰撞对象是否有 <code>Entity_Stats</code>；② buff.type 是否在 GetStatByType 中有实现；③ buffName 非空（Remove 时也要用同一字符串）。OnTriggerEnter2D 未判 statsToModify 为 null，玩家无 Entity_Stats 会报错。</p>
+    </div>
+    <div class="card">
+      <h4>StatType.CritChange 拼写</h4>
+      <p>枚举名为 <code>CritChange</code>（非 CritChance），与 offense.critChance 对应。Buff 配置时需选 CritChange，勿与 CritPower 混淆。</p>
+    </div>
+    <div class="card">
+      <h4>元素伤害为何有时为 0？</h4>
+      <p>GetElementalDamage 要求 fire/ice/lightning 至少一项 &gt; 0 才输出伤害；全为 0 时 element=None、return 0。仅智力不加元素伤害（智力 flat 加在已有主元素之后）。次元素 50% 规则：三项中最高为主，另外两项各算一半叠加。</p>
+    </div>
+    <div class="card">
+      <h4>与战斗模块的衔接</h4>
+      <p><code>Entity_Combat.PerformAttack</code> 调用攻击方 <code>GetPhysicalDamage(out isCrit)</code> 与 <code>GetElementalDamage(out element, 0.6f)</code>；<code>Entity_Health.TakeDamage</code> 用防守方 <code>GetArmorMitigation(攻击方.GetArmorReduction())</code>、<code>GetElementalResistance(element)</code>、<code>GetEvasion()</code>。详见<a href="../战斗系统/index.html">模块 5 战斗系统</a>。</p>
+    </div>
+  </section>
+
+  <p class="footer">模块 6/8 · 属性系统</p>
+</main>
+</body>
+</html>

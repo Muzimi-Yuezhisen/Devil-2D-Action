@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>敌人状态机 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+
+<nav>
+  <span class="mod-badge">模块 4/8</span>
+  <div class="section">
+    <h2>本模块</h2>
+    <a href="#overview">总览</a>
+    <a href="#diagram">状态图</a>
+    <a href="#flow">核心流程</a>
+    <a href="#scripts">脚本清单</a>
+  </div>
+  <div class="section">
+    <h2>核心脚本</h2>
+    <a href="#enemy">Enemy.cs</a>
+    <a href="#skeleton">Enemy_Skeleton.cs</a>
+    <a href="#enemystate">EnemyState.cs</a>
+    <a href="#grounded">Enemy_GroundedState</a>
+    <a href="#idle">Enemy_IdleState</a>
+    <a href="#move">Enemy_MoveState</a>
+    <a href="#battle">Enemy_BattleState</a>
+    <a href="#attack">Enemy_AttackState</a>
+    <a href="#stunned">Enemy_StunnedState</a>
+    <a href="#dead">Enemy_DeadState</a>
+  </div>
+  <div class="section">
+    <h2>关联脚本</h2>
+    <a href="#anim">EnemyAnnimationTriggers</a>
+    <a href="#health">Enemy_Health.cs</a>
+    <a href="#faq">常见问题</a>
+    <a href="../README.md">← 返回模块索引</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../README.md">← Learning 总索引</a></div>
+
+  <h1>敌人状态机</h1>
+
+  <div class="module-nav">
+    <a href="../有限状态机/index.html">1 有限状态机</a>
+    <a href="../玩家状态机/index.html">2 玩家状态机</a>
+    <a href="../关卡和摄像机设置/index.html">3 关卡和摄像机</a>
+    <a href="../敌人状态机/index.html" class="current">4 敌人状态机</a>
+    <a href="../战斗系统/index.html">5 战斗系统</a>
+    <a href="../属性系统/index.html">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html">7 技能树与UI</a>
+    <a href="../核心技能系统/index.html">8 核心技能</a>
+  </div>
+
+  <p class="subtitle">巡逻 → 发现玩家 → 战斗追击/后撤 → 攻击 → 弹反眩晕 · 依赖模块 1 有限状态机与模块 2 玩家状态机的事件约定</p>
+
+  <!-- OVERVIEW -->
+  <section id="overview">
+    <h2>模块总览</h2>
+    <div class="card highlight">
+      <p><strong>这个模块解决什么问题？</strong></p>
+      <ul>
+        <li>让敌人在场景中自主巡逻（idle / move），用射线检测前方玩家</li>
+        <li>发现或被打后进入战斗：追击、后撤、超时脱战回 idle</li>
+        <li>进入攻击距离后播放攻击动画，动画结束回到战斗状态继续追击</li>
+        <li>在攻击动画窗口内可被玩家弹反（Skeleton 实现 <code>ICounterable</code>），进入 stunned 击飞</li>
+        <li>死亡时关闭状态机与碰撞，玩家死亡时所有敌人回到 idle</li>
+      </ul>
+    </div>
+    <p>你可以把这个模块想象成三层：</p>
+    <table>
+      <tr><th>层</th><th>职责</th><th>代表脚本</th></tr>
+      <tr><td>实体层</td><td>参数、玩家检测、死亡/弹反窗口、订阅玩家死亡</td><td><code>Enemy.cs</code>、<code>Enemy_Health.cs</code></td></tr>
+      <tr><td>状态层</td><td>巡逻、战斗、攻击、眩晕、死亡的 Enter/Update 逻辑</td><td><code>Enemy_*State.cs</code> 系列</td></tr>
+      <tr><td>表现层</td><td>动画事件：攻击判定、弹反窗口、状态结束信号</td><td><code>EnemyAnnimationTriggers.cs</code></td></tr>
+    </table>
+    <div class="note">
+      <strong>与模块 1 的关系：</strong><code>Enemy_Skeleton</code> 在 <code>Awake</code> 里 <code>new</code> 各状态并 <code>Start</code> 时 <code>stateMachine.Init(idleState)</code>，与玩家侧模式一致。具体状态类继承 <code>EnemyState</code> → <code>EntityState</code>，由 <code>StateMachine</code> 每帧调用 <code>Update</code>。
+    </div>
+  </section>
+
+  <!-- DIAGRAM -->
+  <section id="diagram">
+    <h2>状态切换图</h2>
+    <div class="diagram">
+      <p><strong>巡逻环</strong>（<code>Enemy_GroundedState</code> 基类检测玩家）</p>
+      <p>idle <span class="arrow">⇄</span> move</p>
+      <p style="margin-top:1rem"><strong>战斗环</strong></p>
+      <p>idle/move <span class="arrow">→</span> battle <span class="arrow">⇄</span> attack</p>
+      <p style="margin-top:1rem"><strong>特殊转换</strong></p>
+      <p>弹反成功 <span class="arrow">→</span> stunned <span class="arrow">→</span> idle</p>
+      <p>HP≤0 <span class="arrow">→</span> dead（关状态机）</p>
+      <p>Player 死亡 <span class="arrow">→</span> 全体 idle</p>
+    </div>
+    <div class="flow">idle ⇄ move          （GroundedState.Update：射线发现 Player → battle）
+  ↓ 发现玩家 / 被玩家打中
+battle ──攻击距离内──→ attack ──动画结束──→ battle
+  ↓ 超时未见玩家（battleTimeDuration）
+idle
+
+弹反窗口内 HandleCounter → stunned → idle
+EntityDeath → deadState（anim off、Collider off、SwitchOffStateMachine）
+Player.OnPlayerDeath → HandlePlayerDeath → idle</div>
+  </section>
+
+  <!-- FLOW -->
+  <section id="flow">
+    <h2>核心流程</h2>
+    <div class="card">
+      <h3>流程 1：巡逻发现玩家</h3>
+      <div class="flow">Enemy_IdleState / Enemy_MoveState 每帧 Update
+  → base Enemy_GroundedState.Update
+  → enemy.PlayerDetected() 射线命中 Player Layer
+  → stateMachine.ChangeState(battleState)</div>
+    </div>
+    <div class="card">
+      <h3>流程 2：战斗追击与攻击</h3>
+      <div class="flow">Enter battleState
+  → 缓存 player 引用；太近则后跳（retreatVelocity）
+Update battleState
+  → 仍见到玩家则刷新战斗计时
+  → 超时 → idle
+  → 距离 &lt; attackDistance → attackState
+  → 否则 battleMoveSpeed 朝玩家移动
+Enter attackState → SyncAttackSpeed()
+  → 动画 AttackTrigger 造成伤害
+  → CurrentStateTrigger → triggerCalled=true → 回 battleState</div>
+    </div>
+    <div class="card">
+      <h3>流程 3：弹反与受伤入战</h3>
+      <div class="flow">攻击动画事件 EnableCounterWindow
+  → canBeStunned=true + 攻击预警 VFX
+玩家弹反 → Enemy_Skeleton.HandleCounter
+  → stunnedState（击飞、关预警）
+玩家攻击命中 → Enemy_Health.TakeDamage
+  → base 扣血成功且伤害来源是 Player
+  → TryEnterBattleState(damageDealer)</div>
+    </div>
+  </section>
+
+  <!-- SCRIPT LIST -->
+  <section id="scripts">
+    <h2>相关脚本清单</h2>
+    <table>
+      <tr><th>文件</th><th>路径</th><th>角色</th></tr>
+      <tr><td>Enemy.cs</td><td>Assets/Scripts/Enemy/</td><td>敌人实体基类：战斗参数、玩家检测、死亡/弹反窗口</td></tr>
+      <tr><td>Enemy_Skeleton.cs</td><td>Assets/Scripts/Enemy/</td><td>骷髅敌人：实例化所有状态、实现 ICounterable</td></tr>
+      <tr><td>EnemyState.cs</td><td>Assets/Scripts/StateMachine/</td><td>敌人状态基类：注入 enemy、同步动画参数</td></tr>
+      <tr><td>Enemy_GroundedState.cs</td><td>Assets/Scripts/Enemy/EnemyStates/</td><td>地面大状态：idle/move 共用玩家检测</td></tr>
+      <tr><td>Enemy_IdleState.cs</td><td>Assets/Scripts/Enemy/EnemyStates/</td><td>站立等待后切 move</td></tr>
+      <tr><td>Enemy_MoveState.cs</td><td>Assets/Scripts/Enemy/EnemyStates/</td><td>巡逻移动，遇墙/悬崖回 idle</td></tr>
+      <tr><td>Enemy_BattleState.cs</td><td>Assets/Scripts/Enemy/EnemyStates/</td><td>追击、后撤、脱战计时、进攻击</td></tr>
+      <tr><td>Enemy_AttackState.cs</td><td>Assets/Scripts/Enemy/EnemyStates/</td><td>攻击动画，结束回 battle</td></tr>
+      <tr><td>Enemy_StunnedState.cs</td><td>Assets/Scripts/Enemy/EnemyStates/</td><td>被弹反后的击飞与硬直</td></tr>
+      <tr><td>Enemy_DeadState.cs</td><td>Assets/Scripts/Enemy/EnemyStates/</td><td>死亡物理表现并关闭状态机</td></tr>
+      <tr><td>EnemyAnnimationTriggers.cs</td><td>Assets/Scripts/Enemy/</td><td>动画事件：弹反窗口开关（继承 Entity_AnimationTriggers）</td></tr>
+      <tr><td>Enemy_Health.cs</td><td>Assets/Scripts/Enemy/</td><td>受伤时若来自玩家则强制入战</td></tr>
+    </table>
+  </section>
+
+  <!-- Enemy.cs -->
+  <section id="enemy">
+    <h2>Enemy.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/Enemy.cs · 继承 Entity，挂在敌人根物体上</div>
+    <span class="tag script">Entity 子类</span>
+    <span class="tag">实体层</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>idleState / moveState / attackState / battleState / deadState / stunnedState</td><td>各 Enemy_*State</td><td>状态实例引用，子类 Awake 里 new，供 ChangeState 使用</td></tr>
+      <tr><td>battleMoveSpeed</td><td>float</td><td>战斗状态下追击玩家的水平速度（默认 3）</td></tr>
+      <tr><td>attackDistance</td><td>float</td><td>与玩家水平距离小于此值时可切 attackState（默认 2）</td></tr>
+      <tr><td>battleTimeDuration</td><td>float</td><td>最后一次见到玩家后多久脱战回 idle（默认 5 秒）</td></tr>
+      <tr><td>minRetreatDistance</td><td>float</td><td>离玩家太近时触发后跳（默认 1）</td></tr>
+      <tr><td>retreatVelocity</td><td>Vector2</td><td>后跳时的速度（x 会乘上背对玩家方向）</td></tr>
+      <tr><td>stunnedDuration</td><td>float</td><td>眩晕状态持续时间（默认 1 秒）</td></tr>
+      <tr><td>stunnedVelocity</td><td>Vector2</td><td>被弹反时的击飞速度（x 乘 -facingDir）</td></tr>
+      <tr><td>canBeStunned</td><td>bool (protected)</td><td>当前攻击动画窗口内是否可被弹反，由动画事件控制</td></tr>
+      <tr><td>moveSpeed</td><td>float</td><td>巡逻 moveState 的移动速度（默认 1.4）</td></tr>
+      <tr><td>idleTime</td><td>float</td><td>idleState 站立多久后切 move（默认 2 秒）</td></tr>
+      <tr><td>moveAnimSpeedMultiplier</td><td>float [0~2]</td><td>传给 Animator 的 move 动画速度倍率</td></tr>
+      <tr><td>whatIsPlayer</td><td>LayerMask</td><td>玩家检测射线的 Layer 掩码</td></tr>
+      <tr><td>playerCheck</td><td>Transform</td><td>射线起点（通常在敌人前方）</td></tr>
+      <tr><td>playerCheckDistance</td><td>float</td><td>玩家检测射线长度（默认 10）</td></tr>
+      <tr><td>player</td><td>Transform (private set)</td><td>缓存的玩家 Transform，入战或 GetPlayerReference 时赋值</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>SlowDownEntityCo(duration, slowMultiplier)</td><td>冰冻等减速效果触发时（Entity 基类协程入口）</td><td>override：临时降低 moveSpeed、battleMoveSpeed、anim.speed，等待 duration 后还原三项原始值</td></tr>
+      <tr><td>EnableCounterWindow(enable)</td><td>动画事件 EnableCounterWindow / DisableCounterWindow；stunned Enter 时关窗口</td><td>设置 canBeStunned，决定 HandleCounter 是否生效</td></tr>
+      <tr><td>EntityDeath()</td><td>血量归零时 Entity_Health 调用</td><td>override：先调 base.EntityDeath()，再 stateMachine.ChangeState(deadState)</td></tr>
+      <tr><td>HandlePlayerDeath()</td><td>Player.OnPlayerDeath 事件（OnEnable 订阅）</td><td>玩家死亡后把本敌人切回 idleState，停止战斗行为</td></tr>
+      <tr><td>TryEnterBattleState(player)</td><td>Enemy_Health.TakeDamage 命中且伤害来源是 Player</td><td>若当前不是 battle/attack 状态，缓存 player 并 ChangeState(battleState)；已在战斗中则忽略</td></tr>
+      <tr><td>GetPlayerReference()</td><td>battleState.Enter 首次需要玩家位置时</td><td>若 player 为 null，用 PlayerDetected().transform 懒加载并返回</td></tr>
+      <tr><td>PlayerDetected()</td><td>GroundedState.Update、battleState.Update、GetPlayerReference</td><td>从 playerCheck 沿 facingDir 发射 Physics2D 射线；必须命中 Player Layer 才返回有效 hit，否则 default</td></tr>
+      <tr><td>OnDrawGizmos()</td><td>Scene 视图选中物体时（Editor）</td><td>override：画黄色玩家检测线、蓝色攻击距离线，便于调试 Inspector 参数</td></tr>
+      <tr><td>OnEnable()</td><td>物体启用时</td><td>订阅 Player.OnPlayerDeath += HandlePlayerDeath</td></tr>
+      <tr><td>OnDisable()</td><td>物体禁用/销毁时</td><td>取消订阅 Player.OnPlayerDeath -= HandlePlayerDeath，避免泄漏</td></tr>
+    </table>
+    <div class="note">
+      <strong>射线细节：</strong><code>PlayerDetected</code> 的 LayerMask 是 <code>whatIsPlayer | whatIsGround</code>，这样射线会先碰到墙；只有碰撞体 Layer 为 Player 才视为发现玩家。
+    </div>
+  </section>
+
+  <!-- Enemy_Skeleton -->
+  <section id="skeleton">
+    <h2>Enemy_Skeleton.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/Enemy_Skeleton.cs · 具体敌人类型，挂骷髅 Prefab 根物体</div>
+    <span class="tag script">Enemy 子类</span>
+    <span class="tag enum">ICounterable</span>
+
+    <h3>字段 / 属性</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>CanBeCountered</td><td>bool 属性</td><td>ICounterable 接口：只读返回 enemy.canBeStunned，供玩家弹反逻辑查询</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>初始化，在 base.Awake 之后</td><td>override：new 六个状态实例；deadState 动画 Bool 用 <code>"idle"</code>（死亡不播专用死亡 Bool）；其余 idle/move/attack/battle/stunned 对应各自动画名</td></tr>
+      <tr><td>Start()</td><td>第一帧</td><td>override：base.Start() 后 stateMachine.Init(idleState) 从站立巡逻开始</td></tr>
+      <tr><td>HandleCounter()</td><td>玩家弹反成功且目标实现 ICounterable 时</td><td>若 CanBeCountered 为 false 直接 return；否则 ChangeState(stunnedState)</td></tr>
+    </table>
+  </section>
+
+  <!-- EnemyState -->
+  <section id="enemystate">
+    <h2>EnemyState.cs</h2>
+    <div class="path">Assets/Scripts/StateMachine/EnemyState.cs · 所有敌人状态的基类</div>
+    <span class="tag script">EntityState 子类</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>enemy</td><td>Enemy (protected)</td><td>指向宿主敌人，访问参数、ChangeState 目标状态、检测方法</td></tr>
+    </table>
+    <p>继承自 <code>EntityState</code> 的 protected 字段：<code>stateMachine</code>、<code>animBoolName</code>、<code>rb</code>、<code>anim</code>、<code>stats</code>、<code>stateTimer</code>、<code>triggerCalled</code>。</p>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>EnemyState(enemy, stateMachine, animBoolName)</td><td>各具体状态 new 时（如 Skeleton.Awake）</td><td>调 base 构造；把 enemy.rb、enemy.anim、enemy.stats 注入状态，避免每状态重复 GetComponent</td></tr>
+      <tr><td>UpdateAnimationParameters()</td><td>每个状态 Enter 后每帧 Update 内由 base.Update 调用</td><td>override：先 base；设置 <code>battleAnimSpeedMultiplier</code> = battleMoveSpeed/moveSpeed（战斗加速时动画同步加速，避免滑步）；设置 <code>moveAnimSpeedMultiplier</code>；设置 <code>xVelocity</code> 为刚体水平速度</td></tr>
+    </table>
+    <div class="note">
+      基类 <code>EntityState</code> 还提供 <code>Enter/Exit/Update</code>、<code>AnimationTrigger()</code>（置 triggerCalled）、<code>SyncAttackSpeed()</code>（读 stats 写 attackSpeedMultiplier），攻击状态会用到后者。
+    </div>
+  </section>
+
+  <!-- Grounded -->
+  <section id="grounded">
+    <h2>Enemy_GroundedState.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyStates/Enemy_GroundedState.cs · idle 与 move 的公共父类</div>
+    <span class="tag script">EnemyState 子类</span>
+
+    <h3>字段</h3>
+    <p>无新增字段，仅继承 <code>EnemyState</code>。</p>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Enemy_GroundedState(enemy, stateMachine, animBoolName)</td><td>IdleState / MoveState 构造时</td><td>仅转发给 base，无额外逻辑</td></tr>
+      <tr><td>Update()</td><td>处于 idle 或 move 时每帧</td><td>override：base.Update（递减 stateTimer、更新动画参数）；若 PlayerDetected() 为真则 ChangeState(enemy.battleState)</td></tr>
+    </table>
+  </section>
+
+  <!-- Idle -->
+  <section id="idle">
+    <h2>Enemy_IdleState.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyStates/Enemy_IdleState.cs</div>
+
+    <h3>字段</h3>
+    <p>无新增字段。</p>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Enemy_IdleState(enemy, stateMachine, animBoolName)</td><td>Skeleton.Awake 创建状态时</td><td>转发 base 构造</td></tr>
+      <tr><td>Enter()</td><td>切入 idle 时（Init、move 遇墙、battle 超时、stunned 结束等）</td><td>override：base.Enter（打开 idle 动画 Bool）；stateTimer = enemy.idleTime</td></tr>
+      <tr><td>Update()</td><td>idle 存续期间每帧</td><td>override：base.Update（含 Grounded 玩家检测）；stateTimer &lt; 0 时 ChangeState(enemy.moveState)</td></tr>
+    </table>
+  </section>
+
+  <!-- Move -->
+  <section id="move">
+    <h2>Enemy_MoveState.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyStates/Enemy_MoveState.cs</div>
+
+    <h3>字段</h3>
+    <p>无新增字段。</p>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Enemy_MoveState(enemy, stateMachine, animBoolName)</td><td>Skeleton.Awake 创建状态时</td><td>转发 base 构造</td></tr>
+      <tr><td>Enter()</td><td>从 idle 超时或 battle 脱战后进入 move</td><td>override：base.Enter；若脚下无地面或前方贴墙则 Flip() 转向</td></tr>
+      <tr><td>Update()</td><td>move 存续期间每帧</td><td>override：base.Update；SetVelocity(moveSpeed * facingDir, 当前 y 速度) 水平巡逻；无地面或贴墙则 ChangeState(idleState)</td></tr>
+    </table>
+  </section>
+
+  <!-- Battle -->
+  <section id="battle">
+    <h2>Enemy_BattleState.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyStates/Enemy_BattleState.cs · 战斗核心逻辑</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>player</td><td>Transform (private)</td><td>本状态内缓存的玩家引用，用于算距离与方向</td></tr>
+      <tr><td>lastTimeWasInBattle</td><td>float (private)</td><td>上次「仍能看到玩家」的时间戳，用于脱战计时</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Enemy_BattleState(enemy, stateMachine, animBoolName)</td><td>Skeleton.Awake</td><td>转发 base 构造</td></tr>
+      <tr><td>Enter()</td><td>发现玩家、受伤入战、攻击结束回 battle 时</td><td>override：base.Enter；UpdateBattleTimer()；player ??= GetPlayerReference()；若 ShouldRetreat() 则施加 retreatVelocity 后跳并 HandleFlip 面向玩家</td></tr>
+      <tr><td>Update()</td><td>battle 存续期间每帧</td><td>override：base.Update；见到玩家则 UpdateBattleTimer()；BattleTimeIsOver() 则 idle；攻击距离内且仍检测到玩家则 attack；否则 battleMoveSpeed * DirectionToPlayer() 追击</td></tr>
+      <tr><td>UpdateBattleTimer()</td><td>Enter 时；Update 中 PlayerDetected 为真时</td><td>private：lastTimeWasInBattle = Time.time，刷新脱战倒计时起点</td></tr>
+      <tr><td>BattleTimeIsOver()</td><td>battle Update 每帧</td><td>private：返回 Time.time &gt; lastTimeWasInBattle + battleTimeDuration，即长时间未见玩家</td></tr>
+      <tr><td>WithinAttackRange()</td><td>battle Update 判断是否攻击</td><td>private：DistanceToPlayer() &lt; enemy.attackDistance</td></tr>
+      <tr><td>ShouldRetreat()</td><td>battle Enter 判断是否后跳</td><td>private：DistanceToPlayer() &lt; enemy.minRetreatDistance，玩家贴太近</td></tr>
+      <tr><td>DistanceToPlayer()</td><td>WithinAttackRange、ShouldRetreat 内部</td><td>private：player 为 null 返回 float.MaxValue；否则返回与玩家水平距离的绝对值</td></tr>
+      <tr><td>DirectionToPlayer()</td><td>battle Update 追击；Enter 后跳 Flip</td><td>private：player 为 null 返回 0；玩家在右返回 1，在左返回 -1</td></tr>
+    </table>
+  </section>
+
+  <!-- Attack -->
+  <section id="attack">
+    <h2>Enemy_AttackState.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyStates/Enemy_AttackState.cs</div>
+
+    <h3>字段</h3>
+    <p>无新增字段；使用基类 triggerCalled 接收动画结束信号。</p>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Enemy_AttackState(enemy, stateMachine, animBoolName)</td><td>Skeleton.Awake</td><td>转发 base 构造</td></tr>
+      <tr><td>Enter()</td><td>battle 进入攻击距离时</td><td>override：base.Enter；SyncAttackSpeed() 按 stats 设置 attackSpeedMultiplier</td></tr>
+      <tr><td>Update()</td><td>attack 存续期间每帧</td><td>override：base.Update；triggerCalled 为 true（动画 CurrentStateTrigger）时 ChangeState(battleState)</td></tr>
+    </table>
+  </section>
+
+  <!-- Stunned -->
+  <section id="stunned">
+    <h2>Enemy_StunnedState.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyStates/Enemy_StunnedState.cs</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>vfx</td><td>Enemy_VFX (private)</td><td>构造时 GetComponent，用于关闭攻击预警特效</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Enemy_StunnedState(enemy, stateMachine, animBoolName)</td><td>Skeleton.Awake</td><td>缓存 Enemy_VFX 组件引用</td></tr>
+      <tr><td>Enter()</td><td>HandleCounter 弹反成功时</td><td>override：base.Enter；vfx.EnableAttackAlert(false)；EnableCounterWindow(false)；stateTimer = stunnedDuration；刚体速度设为 stunnedVelocity 击飞（x 乘 -facingDir）</td></tr>
+      <tr><td>Update()</td><td>stunned 存续期间每帧</td><td>override：base.Update；stateTimer &lt; 0 时 ChangeState(idleState)</td></tr>
+    </table>
+  </section>
+
+  <!-- Dead -->
+  <section id="dead">
+    <h2>Enemy_DeadState.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyStates/Enemy_DeadState.cs</div>
+
+    <h3>字段</h3>
+    <p>无新增字段。</p>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Enemy_DeadState(enemy, stateMachine, animBoolName)</td><td>Skeleton.Awake</td><td>转发 base 构造（animBoolName 为 "idle"）</td></tr>
+      <tr><td>Enter()</td><td>EntityDeath → ChangeState(deadState)</td><td>override：不调用 base.Enter；anim.enabled = false；Collider2D.enabled = false；gravityScale = 12；向上速度 15；SwitchOffStateMachine() 停止一切状态 Update</td></tr>
+    </table>
+    <div class="note danger">
+      <strong>注意：</strong>deadState 故意跳过 base.Enter，避免死亡时还打开巡逻/战斗动画 Bool。
+    </div>
+  </section>
+
+  <!-- Animation Triggers -->
+  <section id="anim">
+    <h2>EnemyAnnimationTriggers.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/EnemyAnnimationTriggers.cs · 挂在敌人动画子物体上</div>
+    <span class="tag script">Entity_AnimationTriggers 子类</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>enemy</td><td>Enemy (private)</td><td>父级敌人，控制弹反窗口</td></tr>
+      <tr><td>enemyVfx</td><td>Enemy_VFX (private)</td><td>父级 VFX，控制攻击预警显示</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>动画子物体初始化</td><td>override：base.Awake() 缓存 Entity/Combat；GetComponentInParent 取 Enemy 与 Enemy_VFX</td></tr>
+      <tr><td>EnableCounterWindow()</td><td>攻击动画 Animation Event（私有，由 Animator 调用）</td><td>enemy.EnableCounterWindow(true)；enemyVfx.EnableAttackAlert(true) 显示可弹反提示</td></tr>
+      <tr><td>DisableCounterWindow()</td><td>攻击动画结束或窗口关闭事件</td><td>enemy.EnableCounterWindow(false)；enemyVfx.EnableAttackAlert(false)</td></tr>
+    </table>
+
+    <h4>基类 Entity_AnimationTriggers 提供的动画事件（本模块会用到）</h4>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>CurrentStateTrigger()</td><td>攻击/技能动画末尾事件</td><td>调用 entity.CurrentStateAnimationTrigger() → 当前状态 AnimationTrigger()，置 triggerCalled=true</td></tr>
+      <tr><td>AttackTrigger()</td><td>攻击动画命中帧事件</td><td>调用 entityCombat.PerformAttack() 生成伤害判定</td></tr>
+    </table>
+  </section>
+
+  <!-- Health -->
+  <section id="health">
+    <h2>Enemy_Health.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/Enemy_Health.cs · 与 Enemy 同物体，继承 Entity_Health</div>
+    <span class="tag script">Entity_Health 子类</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>enemy</td><td>Enemy (private)</td><td>Start 时 GetComponent，用于入战</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Start()</td><td>第一帧</td><td>enemy = GetComponent&lt;Enemy&gt;() 缓存引用</td></tr>
+      <tr><td>TakeDamage(damage, elementalDamage, element, damageDealer)</td><td>战斗系统对敌人造成伤害时</td><td>override：先 base.TakeDamage；若未真正扣血（无敌等）返回 false；若 damageDealer 带 Player 组件则 TryEnterBattleState(damageDealer)；成功命中返回 true</td></tr>
+    </table>
+    <div class="note">
+      这样玩家从背后打到未察觉的敌人时，敌人会立刻转入 battleState，而不必等面向玩家的射线检测。
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <h2>常见问题</h2>
+    <div class="card">
+      <h4>敌人一直 idle 不追玩家</h4>
+      <p>检查 <code>playerCheck</code> 朝向与 <code>facingDir</code> 是否一致；<code>whatIsPlayer</code> 是否包含 Player Layer；射线长度 <code>playerCheckDistance</code> 是否够远。巡逻时只有前方射线命中才进 battle。</p>
+    </div>
+    <div class="card">
+      <h4>战斗后立刻脱战回 idle</h4>
+      <p><code>battleTimeDuration</code> 从<strong>最后一次 PlayerDetected() 为真</strong>开始计时。玩家躲在墙后或跑到身后时，计时走完后会脱战。可适当加大 duration 或改进检测（如 360° 感知）。</p>
+    </div>
+    <div class="card">
+      <h4>贴脸不攻击或疯狂后跳</h4>
+      <p>调 <code>attackDistance</code> 与 <code>minRetreatDistance</code>：后者应小于前者，否则 Enter 后跳后仍可能在攻击距离外反复横跳。</p>
+    </div>
+    <div class="card">
+      <h4>弹反无效</h4>
+      <p>确认攻击动画上有 <code>EnableCounterWindow</code> / <code>DisableCounterWindow</code> 事件；Prefab 使用 <code>Enemy_Skeleton</code> 并实现 <code>ICounterable</code>；玩家弹反逻辑需读 <code>CanBeCountered</code>。</p>
+    </div>
+    <div class="card">
+      <h4>攻击动画滑步 / 速度不对</h4>
+      <p><code>EnemyState.UpdateAnimationParameters</code> 用 battleMoveSpeed/moveSpeed 同步 <code>battleAnimSpeedMultiplier</code>；攻击前 <code>SyncAttackSpeed()</code> 写入 attackSpeedMultiplier。检查 Animator 是否使用这两个参数。</p>
+    </div>
+    <div class="card">
+      <h4>死亡后还在动 / 还能被打</h4>
+      <p><code>Enemy_DeadState.Enter</code> 应关闭 anim、Collider 并 <code>SwitchOffStateMachine()</code>。若仍受伤，检查是否有多个 Collider 或状态机在别处被重新 Init。</p>
+    </div>
+    <div class="card">
+      <h4>玩家死后敌人仍追空气</h4>
+      <p><code>Enemy.OnEnable</code> 必须订阅 <code>Player.OnPlayerDeath</code>；对应 <code>Player.EntityDeath</code> 需触发该静态事件（见玩家状态机模块）。</p>
+    </div>
+  </section>
+
+  <p class="footer">模块 4/8 · 敌人状态机</p>
+</main>
+
+</body>
+</html>

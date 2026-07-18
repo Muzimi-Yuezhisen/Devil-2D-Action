@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>技能树系统与UI · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+
+<nav>
+  <span class="mod-badge">模块 7/8</span>
+  <div class="section">
+    <h2>本模块</h2>
+    <a href="#overview">总览</a>
+    <a href="#hierarchy">场景结构</a>
+    <a href="#flow">数据流</a>
+    <a href="#scripts">脚本清单</a>
+  </div>
+  <div class="section">
+    <h2>核心脚本</h2>
+    <a href="#ui">UI.cs</a>
+    <a href="#ui-skilltree">UI_SkillTree.cs</a>
+    <a href="#ui-treenode">UI_TreeNode.cs</a>
+    <a href="#connect-handler">UI_TreeConnectHandler</a>
+    <a href="#connect-line">UI_TreeConnection</a>
+    <a href="#tooltip-base">UI_ToolTip.cs</a>
+    <a href="#tooltip-skill">UI_SkillToolTip.cs</a>
+  </div>
+  <div class="section">
+    <h2>关联脚本</h2>
+    <a href="#skill-data">Skill_DataSO</a>
+    <a href="#skill-manager">Player_SkillManager</a>
+    <a href="#player-input">Player 输入</a>
+    <a href="#mini-hp">UI_MiniHealthBar</a>
+    <a href="#enums">枚举类型</a>
+  </div>
+  <div class="section">
+    <h2>其他</h2>
+    <a href="#faq">常见问题</a>
+    <a href="../README.md">← 返回模块索引</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../README.md">← Learning 总索引</a></div>
+
+  <h1>技能树系统与UI</h1>
+
+  <div class="module-nav">
+    <a href="../有限状态机/index.html">1 有限状态机</a>
+    <a href="../玩家状态机/index.html">2 玩家状态机</a>
+    <a href="../关卡和摄像机设置/index.html">3 关卡和摄像机</a>
+    <a href="../敌人状态机/index.html">4 敌人状态机</a>
+    <a href="../战斗系统/index.html">5 战斗系统</a>
+    <a href="../属性系统/index.html">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html" class="current">7 技能树与UI</a>
+    <a href="../核心技能系统/index.html">8 核心技能</a>
+  </div>
+  <p class="subtitle">梳理技能树界面从「按键打开」到「点击解锁技能」的完整逻辑 · 对照 <code>Assets/struct.pdf</code> 中的 New Skill Tree 设计</p>
+
+  <!-- OVERVIEW -->
+  <section id="overview">
+    <h2>模块总览</h2>
+    <div class="card highlight">
+      <p><strong>这个模块解决什么问题？</strong></p>
+      <ul>
+        <li>让玩家用按键（L）打开/关闭技能树面板</li>
+        <li>在树状 UI 上展示技能节点、连线和 Tooltip</li>
+        <li>管理技能点消耗、前置节点、互斥分支</li>
+        <li>解锁后将 <code>Skill_DataSO</code> 中的升级数据传给实际技能（如 Dash）</li>
+      </ul>
+    </div>
+    <p>你可以把这个模块想象成三层：</p>
+    <table>
+      <tr><th>层</th><th>职责</th><th>代表脚本</th></tr>
+      <tr><td>入口层</td><td>谁打开 UI、谁管 Canvas 总开关</td><td><code>Player.cs</code>、<code>UI.cs</code></td></tr>
+      <tr><td>业务层</td><td>技能点、解锁规则、Tooltip 内容</td><td><code>UI_SkillTree</code>、<code>UI_TreeNode</code>、<code>UI_SkillToolTip</code></td></tr>
+      <tr><td>布局层</td><td>节点之间连线、位置自动排列</td><td><code>UI_TreeConnectHandler</code>、<code>UI_TreeConnection</code></td></tr>
+    </table>
+  </section>
+
+  <!-- HIERARCHY -->
+  <section id="hierarchy">
+    <h2>场景 Hierarchy 结构</h2>
+    <div class="flow">Canvas                          ← UI.cs 挂在这里
+├── UI_SkillTree                  ← 默认 inactive，按 L 切换显示
+│   ├── UI_TreeNode - Time echo   ← 根节点，带 UI_TreeConnectHandler
+│   │   ├── Connection            ← UI_TreeConnection（画线）
+│   │   └── Connection (1)
+│   ├── UI_TreeNode - Healing wisp
+│   └── …更多节点
+└── UI_skillToolTip               ← UI_SkillToolTip，与 SkillTree 同级
+
+Player                          ← Player.cs 监听 L 键
+└── …SkillManager / Skill_Dash  ← 解锁后真正改技能行为</div>
+    <div class="note">
+      <strong>注意：</strong><code>UI_skillToolTip</code> 是 Canvas 的<strong>兄弟</strong>，不是 <code>UI_SkillTree</code> 的子物体。Tooltip 脚本里用 <code>GetComponentInParent&lt;UI&gt;()</code> 找 Canvas 上的 UI 组件。
+    </div>
+  </section>
+
+  <!-- FLOW -->
+  <section id="flow">
+    <h2>核心数据流</h2>
+    <div class="card">
+      <h3>流程 1：打开技能树</h3>
+      <div class="flow">按 L 键
+  → Input System: Player/ToggleSkillTreeUI.performed
+  → Player.OnEnable 里注册的回调
+  → UI.ToggleSkillTreeUI()
+  → skillTree.gameObject.SetActive(true/false)
+  → 同时隐藏 Tooltip</div>
+    </div>
+    <div class="card">
+      <h3>流程 2：悬停节点</h3>
+      <div class="flow">鼠标移入 UI_TreeNode
+  → OnPointerEnter
+  → 图标变 Hover 色
+  → UI_SkillToolTip.ShowToolTip(true, rect, node)
+  → 显示名称、描述、解锁条件（技能点/前置/互斥）</div>
+    </div>
+    <div class="card">
+      <h3>流程 3：点击解锁</h3>
+      <div class="flow">鼠标点击 UI_TreeNode
+  → OnPointerDown
+  → CanBeUnlocked()? 
+       ├─ 否 + isLocked → LockedSkillEffect() 文字闪烁
+       └─ 是 → Unlock()
+            → 扣技能点、变白、锁互斥节点、连线变白
+            → skillManager.GetSkillByType(skillType)
+            → Skill_Base.SetSkillUpgrade(upgradeData)</div>
+    </div>
+  </section>
+
+  <!-- SCRIPT LIST -->
+  <section id="scripts">
+    <h2>相关脚本清单</h2>
+    <table>
+      <tr><th>文件</th><th>路径</th><th>角色</th></tr>
+      <tr><td>UI.cs</td><td>Assets/Scripts/UI/</td><td>Canvas 总控，开关技能树</td></tr>
+      <tr><td>UI_SkillTree.cs</td><td>Assets/Scripts/UI/</td><td>技能点、根节点、连接刷新</td></tr>
+      <tr><td>UI_TreeNode.cs</td><td>Assets/Scripts/UI/</td><td>单个技能节点：交互与解锁</td></tr>
+      <tr><td>UI_TreeConnectHandler.cs</td><td>Assets/Scripts/UI/</td><td>管理从一个节点出发的连线</td></tr>
+      <tr><td>UI_TreeConnection.cs</td><td>Assets/Scripts/UI/</td><td>单条线的方向/长度/旋转</td></tr>
+      <tr><td>UI_ToolTip.cs</td><td>Assets/Scripts/UI/</td><td>Tooltip 基类：显示/隐藏/定位</td></tr>
+      <tr><td>UI_SkillToolTip.cs</td><td>Assets/Scripts/UI/</td><td>技能专用 Tooltip 内容与特效</td></tr>
+      <tr><td>UI_MiniHealthBar.cs</td><td>Assets/Scripts/UI/</td><td>小血条（翻转时不旋转，属其他 UI）</td></tr>
+      <tr><td>Skill_DataSO.cs</td><td>Assets/Scripts/SkillSystem/</td><td>技能配置数据（ScriptableObject）</td></tr>
+      <tr><td>Player_SkillManager.cs</td><td>Assets/Scripts/Player/</td><td>按类型找到 Player 上的技能组件</td></tr>
+      <tr><td>Player.cs</td><td>Assets/Scripts/Player/</td><td>注册 L 键打开技能树</td></tr>
+    </table>
+  </section>
+
+  <!-- UI.cs -->
+  <section id="ui">
+    <h2>UI.cs</h2>
+    <div class="path">Assets/Scripts/UI/UI.cs · 挂在 Canvas 上</div>
+    <span class="tag script">MonoBehaviour</span>
+    <span class="tag">入口层</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>skillToolTip</td><td>UI_SkillToolTip</td><td>Tooltip 面板引用，Awake 时自动查找</td></tr>
+      <tr><td>skillTree</td><td>UI_SkillTree</td><td>技能树面板引用，Awake 时查找（含 inactive）</td></tr>
+      <tr><td>skillTreeEnabled</td><td>bool</td><td>记录技能树当前是否显示（私有状态）</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Canvas 初始化</td><td>用 <code>GetComponentInChildren</code> 找到 Tooltip 和 SkillTree。SkillTree 必须传 <code>true</code> 才能找到默认关闭的子物体</td></tr>
+      <tr><td>ToggleSkillTreeUI()</td><td>Player 按 L 键</td><td>翻转 <code>skillTreeEnabled</code>；SetActive 技能树；关闭 Tooltip 避免残留</td></tr>
+    </table>
+  </section>
+
+  <!-- UI_SkillTree -->
+  <section id="ui-skilltree">
+    <h2>UI_SkillTree.cs</h2>
+    <div class="path">Assets/Scripts/UI/UI_SkillTree.cs · 挂在 UI_SkillTree 物体上</div>
+    <span class="tag script">MonoBehaviour</span>
+    <span class="tag">业务层</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>skillPoints</td><td>int</td><td>当前可用技能点数量</td></tr>
+      <tr><td>parentNodes</td><td>UI_TreeConnectHandler[]</td><td>技能树的根节点（如 Time echo），用于启动整棵树的连线布局</td></tr>
+      <tr><td>skillManager</td><td>Player_SkillManager</td><td>运行时找到 Player 上的技能管理器，解锁时用来改实际技能</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>初始化</td><td><code>FindAnyObjectByType&lt;Player_SkillManager&gt;()</code> 缓存技能管理器</td></tr>
+      <tr><td>Start()</td><td>第一帧</td><td>调用 <code>UpdateAllConnections()</code> 根据 Inspector 配置摆好所有节点和线</td></tr>
+      <tr><td>RefundAllSkills()</td><td>右键菜单 / 调试</td><td>找到所有子节点 <code>UI_TreeNode</code>，逐个调用 <code>Refund()</code> 重置整棵树</td></tr>
+      <tr><td>EnoughSkillPoints(cost)</td><td>解锁前检查 / Tooltip</td><td>返回技能点是否 ≥ 消耗</td></tr>
+      <tr><td>RemoveSkillPoints(cost)</td><td>Unlock 成功时</td><td>扣除技能点</td></tr>
+      <tr><td>AddSkillPoints(points)</td><td>Refund 时</td><td>退还技能点</td></tr>
+      <tr><td>UpdateAllConnections()</td><td>Start / 编辑器 OnValidate</td><td>遍历每个根节点，递归更新连线与子节点位置</td></tr>
+    </table>
+  </section>
+
+  <!-- UI_TreeNode -->
+  <section id="ui-treenode">
+    <h2>UI_TreeNode.cs</h2>
+    <div class="path">Assets/Scripts/UI/UI_TreeNode.cs · 每个技能图标节点</div>
+    <span class="tag script">MonoBehaviour</span>
+    <span class="tag">业务层</span>
+    <p>实现 <code>IPointerEnterHandler</code>、<code>IPointerExitHandler</code>、<code>IPointerDownHandler</code>，响应鼠标悬停和点击（需要场景有 EventSystem）。</p>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>neededNodes</td><td>UI_TreeNode[]</td><td>前置技能：必须全部已解锁才能点这个</td></tr>
+      <tr><td>conflictNodes</td><td>UI_TreeNode[]</td><td>互斥分支：对方解锁后本节点永久锁定</td></tr>
+      <tr><td>isUnlocked</td><td>bool</td><td>是否已解锁</td></tr>
+      <tr><td>isLocked</td><td>bool</td><td>是否被互斥锁死（不可再解锁）</td></tr>
+      <tr><td>skillData</td><td>Skill_DataSO</td><td>该节点对应的技能配置（名称、消耗、升级类型等）</td></tr>
+      <tr><td>skillIcon 等</td><td>—</td><td>Inspector 展示用，OnValidate 从 skillData 同步</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>初始化</td><td>缓存 ui、skillTree、connectHandler、rect；设置锁定时的灰色图标</td></tr>
+      <tr><td>Refund()</td><td>RefundAllSkills / 重置</td><td>重置解锁状态；退还技能点；连线恢复灰色</td></tr>
+      <tr><td>Unlock()</td><td>点击且 CanBeUnlocked</td><td>标记解锁、扣点、锁互斥、连线变白；调用 <code>SetSkillUpgrade</code> 改 Player 技能</td></tr>
+      <tr><td>CanBeUnlocked()</td><td>点击前</td><td>检查：未解锁、未锁定、技能点够、前置全解锁、互斥未占用</td></tr>
+      <tr><td>LockConflictNodes()</td><td>Unlock 内</td><td>把 conflictNodes 全部 <code>isLocked = true</code></td></tr>
+      <tr><td>SetIconColor(color)</td><td>多处</td><td>改 skillIcon 颜色（灰 / 白 / Hover）</td></tr>
+      <tr><td>OnPointerDown</td><td>鼠标按下</td><td>能解锁则 Unlock；已锁定则触发 Tooltip 闪烁提示</td></tr>
+      <tr><td>OnPointerEnter</td><td>鼠标进入</td><td>Hover 变色；显示 Tooltip</td></tr>
+      <tr><td>OnPointerExit</td><td>鼠标离开</td><td>隐藏 Tooltip；恢复图标颜色</td></tr>
+      <tr><td>GetColorByHex(hex)</td><td>Awake / Refund</td><td>把 #RRGGBB 字符串转成 Color</td></tr>
+      <tr><td>OnDisable()</td><td>面板关闭时</td><td>根据 isLocked / isUnlocked 恢复正确图标色</td></tr>
+      <tr><td>OnValidate()</td><td>Inspector 改 skillData</td><td>自动同步节点名、图标、消耗到 Inspector 显示字段</td></tr>
+    </table>
+  </section>
+
+  <!-- Connect Handler -->
+  <section id="connect-handler">
+    <h2>UI_TreeConnectHandler.cs</h2>
+    <div class="path">Assets/Scripts/UI/UI_TreeConnectHandler.cs · 与 UI_TreeNode 同挂在一个节点上</div>
+    <span class="tag script">MonoBehaviour</span>
+    <span class="tag">布局层</span>
+
+    <h3>辅助类：UI_TreeConnectDetails</h3>
+    <p>纯数据容器（Serializable），在 Inspector 的 Connection Details 里配置：</p>
+    <table>
+      <tr><th>字段</th><th>作用</th></tr>
+      <tr><td>childNode</td><td>这条线连向的子节点 Handler</td></tr>
+      <tr><td>direction</td><td>连线方向（八方向或 None）</td></tr>
+      <tr><td>length</td><td>线长 100~350</td></tr>
+      <tr><td>rotation</td><td>额外旋转 -25~25</td></tr>
+    </table>
+
+    <h3>UI_TreeConnectHandler 字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>connectionDetails</td><td>Inspector 配置的「逻辑连接」列表</td></tr>
+      <tr><td>connections</td><td>场景里 Connection 子物体上的 UI_TreeConnection 组件数组，<strong>数量必须与 details 一致</strong></td></tr>
+      <tr><td>connectionImage</td><td>父节点传下来的「连到本节点的线」的 Image，用于解锁变色</td></tr>
+      <tr><td>originalColor</td><td>锁定状态下线的原始颜色</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>初始化</td><td>若有 connectionImage，记录原始颜色</td></tr>
+      <tr><td>OnValidate()</td><td>Inspector 改参数</td><td>检查 details 与 connections 数量；一致则刷新布局</td></tr>
+      <tr><td>UpdateConnections()</td><td>内部</td><td>对每条线：画线 → 算子节点位置 → 把线的 Image 交给子节点</td></tr>
+      <tr><td>UpdateAllConnections()</td><td>Start / 根节点调用</td><td>先更新自己的线，再递归让每个 childNode 更新</td></tr>
+      <tr><td>UnlockConnectionImage(unlocked)</td><td>Unlock / Refund</td><td>连线 Image 变白（已解锁）或恢复灰色</td></tr>
+      <tr><td>SetConnectionImage(image)</td><td>父节点调用</td><td>保存「连到本节点」的那条线的 Image 引用</td></tr>
+      <tr><td>SetPosition(position)</td><td>父节点调用</td><td>设置本节点 anchoredPosition</td></tr>
+    </table>
+    <div class="note danger">
+      <strong>常见坑：</strong>Connection Details 有 2 条但 Connections 数组为空 → OnValidate 直接 return，改 Direction 不会有任何效果。
+    </div>
+  </section>
+
+  <!-- UI_TreeConnection -->
+  <section id="connect-line">
+    <h2>UI_TreeConnection.cs</h2>
+    <div class="path">Assets/Scripts/UI/UI_TreeConnection.cs · 挂在 Connection 子物体上</div>
+    <span class="tag script">MonoBehaviour</span>
+    <span class="tag enum">NodeDirectionType</span>
+
+    <h3>枚举 NodeDirectionType</h3>
+    <p>None, UpLeft, Up, UpRight, Left, Right, DownLeft, Down, DownRight — 控制连线从节点向哪个方向伸出。</p>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>rotationPoint</td><td>旋转 pivot，决定线的角度</td></tr>
+      <tr><td>connectionLength</td><td>线的 RectTransform，改 sizeDelta.x 控制长度</td></tr>
+      <tr><td>childNodeConnectionPoint</td><td>线末端的锚点，用来算子节点应放的位置</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>DirectConnection(dir, len, offset)</td><td>UpdateConnections</td><td>根据方向设旋转角；None 时长度设为 0（注意：未 SetActive false，可能仍可见小点）</td></tr>
+      <tr><td>GetConnectionImage()</td><td>UpdateConnections</td><td>返回 connectionLength 上的 Image，供变色用</td></tr>
+      <tr><td>GetConnectionPoint(rect)</td><td>UpdateConnections</td><td>把线末端世界坐标转成父级局部坐标，作为子节点位置</td></tr>
+      <tr><td>GetDirectionAngle(type)</td><td>DirectConnection 内部</td><td>方向枚举 → Z 轴旋转角度（如 Right=0°, Up=90°）</td></tr>
+    </table>
+  </section>
+
+  <!-- UI_ToolTip -->
+  <section id="tooltip-base">
+    <h2>UI_ToolTip.cs</h2>
+    <div class="path">Assets/Scripts/UI/UI_ToolTip.cs · Tooltip 基类</div>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>缓存自身 RectTransform</td></tr>
+      <tr><td>ShowToolTip(show, targetRect)</td><td>hide 时把面板移到 (9999,9999)；show 时调用 UpdatePosition</td></tr>
+      <tr><td>UpdatePosition(targetRect)</td><td>根据目标在屏幕左/右决定 Tooltip 偏左还是偏右； clamp 上下不超出屏幕</td></tr>
+      <tr><td>GetColoredText(color, text)</td><td>生成 TMP 富文本 <code>&lt;color=#...&gt;</code> 包裹的字符串</td></tr>
+    </table>
+  </section>
+
+  <!-- UI_SkillToolTip -->
+  <section id="tooltip-skill">
+    <h2>UI_SkillToolTip.cs</h2>
+    <div class="path">Assets/Scripts/UI/UI_SkillToolTip.cs · 继承 UI_ToolTip</div>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>调 base.Awake；找 UI 和 UI_SkillTree（含 inactive）</td></tr>
+      <tr><td>ShowToolTip(show, targetRect)</td><td>override 基类，仅转发（无节点数据时不填文字）</td></tr>
+      <tr><td>ShowToolTip(show, targetRect, node)</td><td>重载：显示技能名、描述；已锁定显示锁定文案，否则 GetRequirements</td></tr>
+      <tr><td>LockedSkillEffect()</td><td>点击已锁定技能时，requirements 文字红/黄闪烁 3 次</td></tr>
+      <tr><td>TextBlinkEffectCo(...)</td><td>协程：交替切换两种颜色的 locked 提示文字</td></tr>
+      <tr><td>GetRequirements(...)</td><td>拼 Requirements 文本：技能点（绿/红）、前置节点、Locks out 互斥列表</td></tr>
+    </table>
+  </section>
+
+  <!-- Skill_DataSO -->
+  <section id="skill-data">
+    <h2>Skill_DataSO.cs + UpgradeData</h2>
+    <div class="path">Assets/Scripts/SkillSystem/Skill_DataSO.cs</div>
+    <span class="tag data">ScriptableObject</span>
+
+    <p>每个技能节点在 Inspector 拖一个 SO 资源。右键 Create → RPG Setup → Skill Data 创建。</p>
+    <table>
+      <tr><th>Skill_DataSO 字段</th><th>作用</th></tr>
+      <tr><td>cost</td><td>解锁消耗技能点</td></tr>
+      <tr><td>skillType</td><td>对应 Player 上哪种技能（Dash / TimeEcho…）</td></tr>
+      <tr><td>upgradeData</td><td>升级包：类型 + 冷却</td></tr>
+      <tr><td>displayName / description / icon</td><td>UI 展示</td></tr>
+    </table>
+    <table>
+      <tr><th>UpgradeData 字段</th><th>作用</th></tr>
+      <tr><td>upgradeType</td><td>SkillUpgradeType 枚举，决定 Dash 具体行为分支</td></tr>
+      <tr><td>cooldown</td><td>解锁后写入 Skill_Base 的冷却</td></tr>
+    </table>
+    <div class="note">
+      <code>UpgradeData</code> 是独立类（不在 SO 内部嵌套），Unlock 时把整个 <code>skillData.upgradeData</code> 传给 <code>Skill_Base.SetSkillUpgrade</code>。
+    </div>
+  </section>
+
+  <!-- Player_SkillManager -->
+  <section id="skill-manager">
+    <h2>Player_SkillManager.cs</h2>
+    <div class="path">Assets/Scripts/Player/Player_SkillManager.cs · 挂在 Player 上</div>
+    <table>
+      <tr><th>函数</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>GetComponentInChildren 拿到 Skill_Dash</td></tr>
+      <tr><td>GetSkillByType(type)</td><td>switch SkillType → 返回对应 Skill_Base（目前只实现 Dash）</td></tr>
+    </table>
+    <p>技能树 UI 不直接操作 Dash 逻辑，只通过这里拿到技能组件再调用 <code>SetSkillUpgrade</code>。</p>
+  </section>
+
+  <!-- Player input -->
+  <section id="player-input">
+    <h2>Player.cs（与本模块相关部分）</h2>
+    <div class="path">Assets/Scripts/Player/Player.cs</div>
+    <table>
+      <tr><th>代码</th><th>做什么</th></tr>
+      <tr><td>ui = FindAnyObjectByType&lt;UI&gt;()</td><td>Awake 时找到 Canvas 上的 UI</td></tr>
+      <tr><td>input.Player.ToggleSkillTreeUI.performed += …</td><td>OnEnable 注册 L 键；回调里 ui.ToggleSkillTreeUI()</td></tr>
+      <tr><td>input.Disable() OnDisable</td><td>禁用时关闭输入（建议同时 -= 取消订阅）</td></tr>
+    </table>
+  </section>
+
+  <!-- Mini health bar -->
+  <section id="mini-hp">
+    <h2>UI_MiniHealthBar.cs（同属 UI 文件夹，与技能树无关）</h2>
+    <div class="path">Assets/Scripts/UI/UI_MiniHealthBar.cs · 挂在敌人/实体血条上</div>
+    <table>
+      <tr><th>函数</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>找父级 Entity</td></tr>
+      <tr><td>OnEnable / OnDisable</td><td>订阅 / 取消 Entity.OnFlipped</td></tr>
+      <tr><td>HandleFlip()</td><td>实体翻转时把血条 rotation 重置为 0，避免血条跟着倒过来</td></tr>
+    </table>
+  </section>
+
+  <!-- Enums -->
+  <section id="enums">
+    <h2>相关枚举</h2>
+    <table>
+      <tr><th>枚举</th><th>文件</th><th>用途</th></tr>
+      <tr><td>SkillType</td><td>Enum/SkillType.cs</td><td>Dash, TimeEcho — 连接 SO 与 Player 技能组件</td></tr>
+      <tr><td>SkillUpgradeType</td><td>Enum/SkillUpgradeType.cs</td><td>Dash 各升级分支（CloneOnStart、ShardOnStart 等）</td></tr>
+      <tr><td>NodeDirectionType</td><td>UI_TreeConnection.cs</td><td>技能树连线方向</td></tr>
+    </table>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <h2>常见问题（对照你踩过的坑）</h2>
+    <div class="card">
+      <h4>按 L 没反应 / NullReference</h4>
+      <p><code>UI.Awake</code> 必须用 <code>GetComponentInChildren&lt;UI_SkillTree&gt;(true)</code>，否则 inactive 的技能树找不到。</p>
+    </div>
+    <div class="card">
+      <h4>Direction 设 None 线还在</h4>
+      <p>先保证 Connections 数组与 Connection Details 数量一致；若仍可见，在 <code>DirectConnection</code> 里对 None 加 <code>SetActive(false)</code>。</p>
+    </div>
+    <div class="card">
+      <h4>SetSkillUpgrade 类型报错</h4>
+      <p>传 <code>skillData.upgradeData</code>（UpgradeData 对象），不是 <code>.upgradeType</code>（枚举）。</p>
+    </div>
+    <div class="card">
+      <h4>Tooltip NullReference</h4>
+      <p>Tooltip 与 SkillTree 是 Canvas 下兄弟节点，用 <code>GetComponentInParent&lt;UI&gt;()</code> 和 <code>GetComponentInChildren&lt;UI_SkillTree&gt;(true)</code>。</p>
+    </div>
+  </section>
+
+  <p class="footer">模块 7/8 · 技能树系统与UI</p>
+</main>
+
+</body>
+</html>

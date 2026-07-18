@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>关卡和摄像机设置 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+<nav>
+  <span class="mod-badge">模块 3/8</span>
+  <div class="section">
+    <h2>本模块</h2>
+    <a href="#overview">总览</a>
+    <a href="#flow">运行流程</a>
+    <a href="#scripts">脚本清单</a>
+    <a href="#parallax-bg">ParallaxBackground</a>
+    <a href="#parallax-layer">ParallaxLayer</a>
+    <a href="#scene">场景配置</a>
+    <a href="#faq">常见问题</a>
+    <a href="../README.md">← 总索引</a>
+  </div>
+</nav>
+<main>
+  <div class="back"><a href="../README.md">← Learning 总索引</a></div>
+  <h1>关卡和摄像机设置</h1>
+  <p class="subtitle">视差背景无限循环 · Cinemachine 跟随 · Tilemap 关卡（场景配置为主）</p>
+
+  <div class="module-nav">
+    <a href="../有限状态机/index.html">1 有限状态机</a>
+    <a href="../玩家状态机/index.html">2 玩家状态机</a>
+    <a href="../关卡和摄像机设置/index.html" class="current">3 关卡和摄像机</a>
+    <a href="../敌人状态机/index.html">4 敌人状态机</a>
+    <a href="../战斗系统/index.html">5 战斗系统</a>
+    <a href="../属性系统/index.html">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html">7 技能树与UI</a>
+    <a href="../核心技能系统/index.html">8 核心技能</a>
+  </div>
+
+  <section id="overview">
+    <h2>模块总览</h2>
+    <div class="card highlight">
+      <p><strong>解决什么问题？</strong></p>
+      <ul>
+        <li>背景随摄像机移动产生<strong>视差</strong>（远慢近快），增强纵深感</li>
+        <li>背景移出屏幕时<strong>无缝循环</strong>拼接，实现横向无限延伸</li>
+        <li>摄像机跟随玩家（Cinemachine，场景配置）</li>
+        <li>关卡地面碰撞（Tilemap Collider，场景配置）</li>
+      </ul>
+    </div>
+    <p>本模块<strong>只有 2 个脚本</strong>，大量工作在 Scene / Prefab Inspector 里完成。</p>
+  </section>
+
+  <section id="flow">
+    <h2>每帧运行流程</h2>
+    <div class="flow">FixedUpdate (ParallaxBackground)
+  → 读 Camera.main.position.x
+  → distanceToMove = 当前X - lastCameraPositionX
+  → 更新 lastCameraPositionX
+  → 算 cameraLeftEdge / cameraRightEdge（相机可见左右边界）
+  → 对每个 ParallaxLayer:
+       layer.Move(distanceToMove)           // 按倍率平移
+       layer.LoopBackground(left, right)  // 出屏则 ±imageWidth 拼接
+
+Start (仅一次)
+  → InitializeLayers() → 每层 CalculateImageWidth()
+  → lastCameraPositionX = 相机当前X（防首帧跳动）</div>
+  </section>
+
+  <section id="scripts">
+    <h2>相关脚本清单</h2>
+    <table>
+      <tr><th>文件</th><th>路径</th><th>角色</th></tr>
+      <tr><td>ParallaxBackground.cs</td><td>Assets/Scripts/Parallax/</td><td>MonoBehaviour：驱动所有视差层</td></tr>
+      <tr><td>ParallaxLayer.cs</td><td>Assets/Scripts/Parallax/</td><td>Serializable 数据类：单层移动与循环逻辑</td></tr>
+    </table>
+    <table>
+      <tr><th>场景内（无脚本）</th><th>作用</th></tr>
+      <tr><td>Cinemachine Virtual Camera</td><td>Follow = Player，控制镜头跟随与死区</td></tr>
+      <tr><td>Tilemap + TilemapCollider2D</td><td>关卡地形；Player/Enemy 的 whatIsGround 检测此 Layer</td></tr>
+    </table>
+  </section>
+
+  <section id="parallax-bg">
+    <h2>ParallaxBackground.cs</h2>
+    <div class="path">Assets/Scripts/Parallax/ParallaxBackground.cs · 挂在背景根物体上</div>
+    <span class="tag script">MonoBehaviour</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>backgroundLayers</td><td>ParallaxLayer[]</td><td>Inspector 配置的各视差层（Sky、Mid、Front…）</td></tr>
+      <tr><td>cameraHalfWidth</td><td>float</td><td>相机可见区域半宽 = orthographicSize × aspect</td></tr>
+      <tr><td>mainCamera</td><td>Camera</td><td>Awake 缓存 Camera.main</td></tr>
+      <tr><td>lastCameraPositionX</td><td>float</td><td>上一帧相机 X，用于计算本帧移动 delta</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>物体初始化</td><td>mainCamera = Camera.main；cameraHalfWidth = orthographicSize × aspect</td></tr>
+      <tr><td>Start()</td><td>第一帧前</td><td>InitializeLayers() 预计算每层图片宽度；<strong>lastCameraPositionX = 相机当前 X</strong>，避免首帧用 0 造成背景猛跳</td></tr>
+      <tr><td>FixedUpdate()</td><td>固定物理帧（比 Update 更稳，减少抖动）</td><td>算 distanceToMove 与相机左右边界；遍历 backgroundLayers 调用 Move + LoopBackground</td></tr>
+      <tr><td>InitializeLayers()</td><td>Start 时</td><td>foreach layer → layer.CalculateImageWidth()</td></tr>
+    </table>
+  </section>
+
+  <section id="parallax-layer">
+    <h2>ParallaxLayer（Serializable 类）</h2>
+    <div class="path">Assets/Scripts/Parallax/ParallaxLayer.cs · 不是 MonoBehaviour，嵌在 ParallaxBackground 数组里</div>
+    <span class="tag data">Serializable</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型</th><th>作用</th></tr>
+      <tr><td>background</td><td>Transform</td><td>该层背景的 Transform（带 SpriteRenderer）</td></tr>
+      <tr><td>parallaxMultiplier</td><td>float</td><td>相对相机的移动倍率：0=不动，0.5=半速，1=与相机同速</td></tr>
+      <tr><td>imageWidthOffset</td><td>float</td><td>循环判定时边缘内缩，避免拼接缝（默认 10）</td></tr>
+      <tr><td>imageWidth</td><td>float (private)</td><td>CalculateImageWidth 后缓存的精灵宽度</td></tr>
+      <tr><td>imageHalfWidth</td><td>float (private)</td><td>imageWidth / 2，用于算左右边缘</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>CalculateImageWidth()</td><td>Start / InitializeLayers</td><td>从 background 的 SpriteRenderer.bounds.size.x 取宽度；算 imageHalfWidth</td></tr>
+      <tr><td>Move(distanceToMove)</td><td>ParallaxBackground.FixedUpdate 每帧</td><td>background.position += Vector3.right × (distanceToMove × parallaxMultiplier)</td></tr>
+      <tr><td>LoopBackground(cameraLeftEdge, cameraRightEdge)</td><td>Move 之后同帧</td><td>算背景图左右边缘（带 offset）；若整图移出相机左侧则 position += imageWidth；移出右侧则 -= imageWidth，实现无缝循环</td></tr>
+    </table>
+    <div class="note">
+      <strong>循环原理：</strong>背景是一张可平铺的长图（或重复图案）。当图的右边缘跑到相机左边外面，就把整张图向右平移一个 imageWidth，视觉上首尾相接。
+    </div>
+  </section>
+
+  <section id="scene">
+    <h2>场景 Hierarchy 建议</h2>
+    <div class="flow">Background (ParallaxBackground 组件)
+├── Background_Sky        ← parallaxMultiplier 小（远景，几乎不动）
+├── Background_Mid
+└── Background_Front      ← multiplier 大（近景，动得快）
+
+Main Camera
+  + CinemachineBrain
+CM vcam1
+  + CinemachineVirtualCamera → Follow: Player, LookAt: Player
+
+Grid / Tilemap
+  + TilemapCollider2D (Layer: Ground)</div>
+    <h3>Cinemachine 关键概念</h3>
+    <table>
+      <tr><th>项</th><th>说明</th></tr>
+      <tr><td>Follow</td><td>镜头跟踪的目标 Transform（Player）</td></tr>
+      <tr><td>Dead Zone</td><td>玩家在小范围内移动时镜头不动，减少晃动</td></tr>
+      <tr><td>Orthographic Size</td><td>正交相机「半高」，影响 ParallaxBackground 的 cameraHalfWidth 计算</td></tr>
+    </table>
+  </section>
+
+  <section id="faq">
+    <h2>常见问题</h2>
+    <div class="card">
+      <h4>游戏开始背景突然跳一大段</h4>
+      <p><code>lastCameraPositionX</code> 默认 0，首帧相机动了 8 米就会按 8 米去移背景。必须在 <code>Start</code> 里初始化为 <code>mainCamera.transform.position.x</code>。</p>
+    </div>
+    <div class="card">
+      <h4>移动时天空和地面错位</h4>
+      <p>只有部分 Sky 子图放进 <code>backgroundLayers</code> 时，未纳入的兄弟物不会 Move。做法：把 Left/Right 拼块都作为<strong>同一层 background 的子物体</strong>，或每层只用一个完整宽图。</p>
+    </div>
+    <div class="card">
+      <h4>为什么用 FixedUpdate 不用 Update？</h4>
+      <p>与物理/相机跟随在同一节奏更新，减少帧率波动导致的背景抖动。若相机在 LateUpdate 移动，极端情况可能仍有轻微不同步，可按项目改为 LateUpdate 跟随相机。</p>
+    </div>
+    <div class="card">
+      <h4>循环出现黑缝</h4>
+      <p>调 <code>imageWidthOffset</code>；确认 Sprite 素材左右能无缝拼接；检查 imageWidth 是否来自正确的 SpriteRenderer（子物体 vs 父物体）。</p>
+    </div>
+  </section>
+
+  <p class="footer">模块 3/8 · 关卡和摄像机设置</p>
+</main>
+</body>
+</html>

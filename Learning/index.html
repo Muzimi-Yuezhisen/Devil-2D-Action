@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Devil 项目学习 · 导航</title>
+  <link rel="stylesheet" href="_assets/style.css">
+  <style>
+    body { display: block; }
+    .hub { max-width: 720px; margin: 0 auto; padding: 3rem 1.5rem; }
+    .hub h1 { margin-bottom: 0.5rem; }
+    .modules { list-style: none; padding: 0; margin: 2rem 0; }
+    .modules li { margin-bottom: .75rem; }
+    .modules a {
+      display: block;
+      padding: 1rem 1.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      text-decoration: none;
+      transition: border-color .15s;
+    }
+    .modules a:hover { border-color: var(--accent); }
+    .modules .num { color: var(--accent); font-weight: 600; margin-right: .5rem; }
+    .modules .desc { display: block; font-size: .85rem; color: var(--muted); margin-top: .25rem; }
+  </style>
+</head>
+<body>
+<div class="hub">
+  <h1>Devil 项目学习</h1>
+  <p class="subtitle">按课程顺序梳理各模块脚本与函数 · 对照 Assets/struct.pdf</p>
+  <ul class="modules">
+    <li><a href="有限状态机/index.html"><span class="num">01</span>有限状态机<span class="desc">StateMachine · EntityState — FSM 通用框架</span></a></li>
+    <li><a href="玩家状态机/index.html"><span class="num">02</span>玩家状态机<span class="desc">Player · PlayerState · 13 种玩家状态</span></a></li>
+    <li><a href="关卡和摄像机设置/index.html"><span class="num">03</span>关卡和摄像机设置<span class="desc">Parallax 视差 · Cinemachine · Tilemap</span></a></li>
+    <li><a href="敌人状态机/index.html"><span class="num">04</span>敌人状态机<span class="desc">Enemy · Skeleton · AI 战斗状态</span></a></li>
+    <li><a href="战斗系统/index.html"><span class="num">05</span>战斗系统<span class="desc">伤害 · 元素 · 状态效果 · 弹反 · VFX</span></a></li>
+    <li><a href="属性系统/index.html"><span class="num">06</span>属性系统<span class="desc">Stat · Modifier · 护甲/暴击/元素公式</span></a></li>
+    <li><a href="技能树系统与UI/index.html"><span class="num">07</span>技能树系统与UI<span class="desc">技能树 UI · SO · 解锁与 Dash 升级</span></a></li>
+    <li><a href="核心技能系统/index.html"><span class="num">08</span>核心技能系统<span class="desc">SkillManager · 冷却 · Skill_Dash · 已接/未接一览</span></a></li>
+  </ul>
+  <p style="color:var(--muted);font-size:.9rem;">源码：<code>Assets/Scripts/</code> · 框架图：<code>Assets/struct.pdf</code></p>
+</div>
+</body>
+</html>

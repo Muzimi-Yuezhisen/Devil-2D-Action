@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>战斗系统 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+<nav>
+  <span class="mod-badge">模块 5/8</span>
+  <div class="section">
+    <h2>导航</h2>
+    <a href="#overview">总览</a>
+    <a href="#flow">伤害流程</a>
+    <a href="#scripts">脚本清单</a>
+    <a href="#entity">Entity.cs</a>
+    <a href="#entity-combat">Entity_Combat.cs</a>
+    <a href="#entity-health">Entity_Health.cs</a>
+    <a href="#entity-status">Entity_StatusHandler.cs</a>
+    <a href="#entity-vfx">Entity_VFX.cs</a>
+    <a href="#entity-anim">Entity_AnimationTriggers.cs</a>
+    <a href="#player-combat">Player_Combat.cs</a>
+    <a href="#enemy-health">Enemy_Health.cs</a>
+    <a href="#enemy-vfx">Enemy_VFX.cs</a>
+    <a href="#vfx-auto">VFX_AutoController.cs</a>
+    <a href="#idamagable">IDamagable</a>
+    <a href="#icounterable">ICounterable</a>
+    <a href="#object-chest">Object_Chest.cs</a>
+    <a href="#element-type">ElementType</a>
+    <a href="#faq">FAQ</a>
+    <a href="../README.md">← 总索引</a>
+  </div>
+</nav>
+<main>
+  <div class="back"><a href="../README.md">← Learning 总索引</a></div>
+  <h1>战斗系统</h1>
+  <p class="subtitle">攻击检测 · 物理/元素伤害 · 状态效果 · 弹反 · 击退 · 依赖模块 6 属性系统（Entity_Stats 公式）</p>
+
+  <div class="module-nav">
+    <a href="../有限状态机/index.html">1 有限状态机</a>
+    <a href="../玩家状态机/index.html">2 玩家状态机</a>
+    <a href="../关卡和摄像机设置/index.html">3 关卡和摄像机</a>
+    <a href="../敌人状态机/index.html">4 敌人状态机</a>
+    <a href="../战斗系统/index.html" class="current">5 战斗系统</a>
+    <a href="../属性系统/index.html">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html">7 技能树与UI</a>
+    <a href="../核心技能系统/index.html">8 核心技能</a>
+  </div>
+
+  <section id="overview">
+    <h2>模块总览</h2>
+    <div class="card highlight">
+      <p>战斗系统把<strong>移动基类</strong>、<strong>攻击判定</strong>、<strong>生命值</strong>、<strong>元素状态</strong>、<strong>视觉反馈</strong>拆成多个 MonoBehaviour，挂在同一 GameObject（Player / Enemy）上，通过组件互相引用协作。</p>
+      <ul>
+        <li><code>Entity</code> — 物理移动、翻转、击退锁定、地面/墙壁射线、状态机每帧 Update</li>
+        <li><code>Entity_AnimationTriggers</code> — 动画事件入口：转发状态触发器 / 调用 <code>PerformAttack</code></li>
+        <li><code>Entity_Combat</code> — OverlapCircle 找目标 → 读 <code>Entity_Stats</code> 算伤害 → <code>IDamagable.TakeDamage</code> → 施加元素状态 → 命中 VFX</li>
+        <li><code>Entity_Health</code> — 闪避、护甲/抗性减免、扣血、回血、击退、死亡</li>
+        <li><code>Entity_StatusHandler</code> — 冰冻减速、燃烧 DOT、感电充能落雷</li>
+        <li><code>Entity_VFX</code> — 受击闪白、命中粒子、异常状态颜色闪烁</li>
+        <li><code>Player_Combat</code> — 在基类之上增加弹反扫描（<code>ICounterable</code>）</li>
+        <li><code>Enemy_Health</code> / <code>Enemy_VFX</code> — 敌人受击进战、弹反窗口预警</li>
+      </ul>
+    </div>
+    <div class="note">
+      <strong>与属性系统的关系：</strong>伤害、护甲、闪避、元素抗性等数值全部来自 <code>Entity_Stats</code>（见模块 6）。本模块只负责「何时算伤害、如何传递、命中后发生什么」。
+    </div>
+  </section>
+
+  <section id="flow">
+    <h2>完整伤害流程图</h2>
+    <div class="flow">【攻击发起】
+Animator 播放攻击动画
+  → 动画事件 AttackTrigger()          [Entity_AnimationTriggers]
+  → Entity_Combat.PerformAttack()
+
+【目标检测】
+PerformAttack()
+  → GetDetectedColliders()
+       Physics2D.OverlapCircleAll(targetCheck, targetCheckRadius, whatIsTarget)
+  → 遍历每个 Collider2D
+
+【对每个目标】
+  → target.GetComponent&lt;IDamagable&gt;()
+  → 若无 IDamagable → continue 跳过
+
+【伤害计算 — 攻击方 Entity_Stats】
+  → stats.GetElementalDamage(out element, 0.6f)   // 元素伤害 + 主元素类型
+  → stats.GetPhysicalDamage(out isCrit)           // 物理伤害 + 是否暴击
+
+【受击处理 — IDamagable.TakeDamage】
+Entity_Health.TakeDamage(damage, elementalDamage, element, transform)
+  ├─ isDead == true → return false
+  ├─ AttackEvaded() → Random(0,100) &lt; GetEvasion() → return false
+  ├─ 攻击者 Entity_Stats.GetArmorReduction() → armorReduction
+  ├─ 受击者 GetArmorMitigation(armorReduction) → mitigation
+  │     physicalDamageTaken = damage × (1 - mitigation)
+  ├─ 受击者 GetElementalResistance(element) → resistance
+  │     elementalDamageTaken = elementalDamage × (1 - resistance)
+  ├─ TakeKnockback(damageDealer, physicalDamageTaken)
+  │     → CalculateKnockback / CalculateDuration
+  │     → entity.ReceiveKnockback(knockback, duration)
+  │           → KnockbackCo: isKnocked=true, 设 rb 速度, 等待, 清零, isKnocked=false
+  ├─ ReduceHealth(physical + elemental)
+  │     → entityVfx.PlayOnDamageVfx()   // 受击材质闪白
+  │     → currentHealth -= damage
+  │     → UpdateHealthBar()
+  │     → currentHealth &lt;= 0 → Die() → isDead=true → entity.EntityDeath()
+  └─ return true
+
+【敌人专用 — Enemy_Health override】
+  base.TakeDamage 命中后
+  → damageDealer 有 Player 组件 → enemy.TryEnterBattleState(damageDealer)
+
+【元素状态 — 攻击命中且 element != None】
+Entity_Combat.ApplyStatusEffect(target.transform, element)
+  → target.GetComponent&lt;Entity_StatusHandler&gt;()
+  → CanBeApplied(element) 检查是否可挂状态
+  ├─ Ice  → ApplyChillEffect(duration, chillSlowMultiplier)
+  │           → 冰抗减时长 → ChilledEffectCo → SlowDownEntity + PlayOnStatusVfx
+  ├─ Fire → ApplyBurnEffect(duration, fireDamage × fireScale)
+  │           → 火抗减总伤 → BurnEffectCo → 每秒 2 tick DOT
+  └─ Lightning → ApplyElectrifyEffect(duration, lightningDamage × lightningScale, charge)
+                 → 雷抗减充能 → 累加 currentCharge
+                 → charge &gt;= maximumCharge → DoLightningStrike + StopElectrifyEffect
+                 → 否则 ElectrifyEffectCo → PlayOnStatusVfx，超时清 charge
+
+【命中 VFX — targetGotHit == true】
+  → vfx.UpdateOnHitColor(element)      // 改攻击方命中粒子颜色
+  → vfx.CreateOnHitVFX(target, isCrit) // 在目标位置生成 hit/crit 预制体
+
+【弹反流程 — 独立于 PerformAttack】
+Player 按 CounterAttack → Player_CounterAttackState.Enter()
+  → Player_Combat.CounterAttackPerformed()
+  → Overlap 内找 ICounterable 且 CanBeCountered
+  → counterable.HandleCounter()   // 例：Enemy_Skeleton → stunnedState
+敌人攻击动画事件 EnableCounterWindow → canBeStunned=true + Enemy_VFX.EnableAttackAlert(true)
+
+【非战斗 IDamagable — Object_Chest】
+TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护甲/不扣血）</div>
+  </section>
+
+  <section id="scripts">
+    <h2>脚本清单</h2>
+    <table>
+      <tr><th>脚本</th><th>路径</th><th>挂载对象</th><th>职责</th></tr>
+      <tr><td>Entity.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy 根物体</td><td>移动、翻转、击退、碰撞检测、状态机驱动</td></tr>
+      <tr><td>Entity_Combat.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy</td><td>攻击范围检测、伤害结算、元素状态施加</td></tr>
+      <tr><td>Entity_Health.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy / 可破坏物</td><td>生命值、闪避、护甲/抗性、回血、死亡</td></tr>
+      <tr><td>Entity_StatusHandler.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy</td><td>冰冻 / 燃烧 / 感电协程</td></tr>
+      <tr><td>Entity_VFX.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy / Chest</td><td>受击/命中/状态视觉特效</td></tr>
+      <tr><td>Entity_AnimationTriggers.cs</td><td>Assets/Scripts/Entity/</td><td>子物体（Animator 所在）</td><td>动画事件 → 状态机 / 攻击</td></tr>
+      <tr><td>Player_Combat.cs</td><td>Assets/Scripts/Player/</td><td>Player</td><td>继承 Entity_Combat + 弹反判定</td></tr>
+      <tr><td>Enemy_Health.cs</td><td>Assets/Scripts/Enemy/</td><td>Enemy</td><td>受击后进入战斗状态</td></tr>
+      <tr><td>Enemy_VFX.cs</td><td>Assets/Scripts/Enemy/</td><td>Enemy</td><td>弹反窗口预警 UI/物体</td></tr>
+      <tr><td>VFX_AutoController.cs</td><td>Assets/Scripts/VFX/</td><td>命中粒子等预制体</td><td>随机偏移/旋转、自动销毁</td></tr>
+      <tr><td>IDamagable.cs</td><td>Assets/Scripts/Interface/</td><td>—</td><td>可受击接口</td></tr>
+      <tr><td>ICounterable.cs</td><td>Assets/Scripts/Interface/</td><td>—</td><td>可被弹反接口</td></tr>
+      <tr><td>Object_Chest.cs</td><td>Assets/Scripts/InteractiveObjects/</td><td>宝箱</td><td>受击开盖（特殊 IDamagable）</td></tr>
+      <tr><td>ElementType.cs</td><td>Assets/Scripts/Enum/</td><td>—</td><td>元素类型枚举</td></tr>
+    </table>
+  </section>
+
+  <section id="entity">
+    <h2>Entity.cs</h2>
+    <div class="path">Assets/Scripts/Entity/Entity.cs · Player / Enemy 的抽象基类</div>
+    <span class="tag script">MonoBehaviour</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>类型 / 可见性</th><th>作用</th></tr>
+      <tr><td>OnFlipped</td><td>event Action</td><td>翻转时触发；UI_MiniHealthBar 订阅以保持血条朝向</td></tr>
+      <tr><td>anim</td><td>Animator · 只读</td><td>Awake 中 GetComponentInChildren 缓存</td></tr>
+      <tr><td>rb</td><td>Rigidbody2D · 只读</td><td>刚体引用，移动与击退用</td></tr>
+      <tr><td>stats</td><td>Entity_Stats · 只读</td><td>属性组件引用</td></tr>
+      <tr><td>stateMachine</td><td>StateMachine · protected</td><td>Awake 中 new；Update 驱动当前状态</td></tr>
+      <tr><td>facingRight</td><td>bool · private</td><td>当前是否朝右（本地记录）</td></tr>
+      <tr><td>facingDir</td><td>int · 只读</td><td>朝向：1 右 / -1 左；墙检测射线方向、VFX 翻转用</td></tr>
+      <tr><td>groundCheckDistance</td><td>float · SerializeField</td><td>地面射线长度</td></tr>
+      <tr><td>wallCheckDistance</td><td>float · SerializeField</td><td>墙壁射线长度</td></tr>
+      <tr><td>whatIsGround</td><td>LayerMask · protected</td><td>地面/墙 Layer</td></tr>
+      <tr><td>groundCheck</td><td>Transform · SerializeField</td><td>脚底检测点</td></tr>
+      <tr><td>primaryWallCheck</td><td>Transform · SerializeField</td><td>主墙检测点</td></tr>
+      <tr><td>secondaryWallCheck</td><td>Transform · SerializeField</td><td>次墙检测点（可选；双点都命中才算贴墙）</td></tr>
+      <tr><td>groundDetected</td><td>bool · 只读</td><td>本帧是否在地面</td></tr>
+      <tr><td>wallDetected</td><td>bool · 只读</td><td>本帧是否贴墙（朝 facingDir 方向）</td></tr>
+      <tr><td>isKnocked</td><td>bool · private</td><td>击退协程进行中；阻止 SetVelocity 改速度</td></tr>
+      <tr><td>knockbackCo</td><td>Coroutine · private</td><td>当前击退协程句柄（新击退会先 Stop）</td></tr>
+      <tr><td>slowDownCo</td><td>Coroutine · private</td><td>当前减速协程句柄（冰冻等）</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Unity 生命周期；子类 override 时 base.Awake()</td><td>缓存 anim、rb、stats；创建 stateMachine 实例</td></tr>
+      <tr><td>Start()</td><td>Unity 生命周期；子类可 override</td><td>基类为空；Player/Enemy 在子类 Init 初始状态</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>调用 HandleCollisionDetection()；stateMachine.UpdateActiveState()</td></tr>
+      <tr><td>CurrentStateAnimationTrigger()</td><td>Entity_AnimationTriggers.CurrentStateTrigger 动画事件</td><td>转发给 stateMachine.currentState.AnimationTrigger()；状态内用 triggerCalled 切状态</td></tr>
+      <tr><td>EntityDeath()</td><td>Entity_Health.Die() 扣血至 0 时</td><td>virtual 空实现；Player 切 deadState + 事件；Enemy 切 deadState</td></tr>
+      <tr><td>SlowDownEntity(duration, slowMultiplier)</td><td>Entity_StatusHandler 冰冻时</td><td>若已有 slowDownCo 则 Stop；启动 SlowDownEntityCo 协程</td></tr>
+      <tr><td>SlowDownEntityCo(duration, slowMultiplier)</td><td>SlowDownEntity 内部 StartCoroutine</td><td>protected virtual；基类 yield return null 无效果；Player/Enemy override 降低 moveSpeed、anim.speed 等，duration 后还原</td></tr>
+      <tr><td>ReceiveKnockback(knockback, duration)</td><td>Entity_Health.TakeKnockback</td><td>Stop 旧 knockbackCo；StartCoroutine(KnockbackCo)</td></tr>
+      <tr><td>KnockbackCo(knockback, duration)</td><td>ReceiveKnockback 内部</td><td>private：isKnocked=true → 设 rb.linearVelocity=knockback → WaitForSeconds → 速度清零 → isKnocked=false</td></tr>
+      <tr><td>SetVelocity(xVelocity, yVelocity)</td><td>各 State 的 Update / FixedUpdate 移动逻辑</td><td>若 isKnocked 直接 return；否则设 rb 速度并 HandleFlip(xVelocity)</td></tr>
+      <tr><td>Flip()</td><td>HandleFlip 判定需要转向时；也可外部手动调用</td><td>transform.Rotate(0,180,0)；切换 facingRight、facingDir；触发 OnFlipped</td></tr>
+      <tr><td>HandleFlip(xVelocity)</td><td>SetVelocity 内</td><td>x&gt;0 且朝左 → Flip；x&lt;0 且朝右 → Flip；x==0 不翻转</td></tr>
+      <tr><td>HandleCollisionDetection()</td><td>Update 每帧</td><td>private：groundCheck 向下 Raycast → groundDetected；primaryWallCheck（+ 可选 secondary）沿 facingDir Raycast → wallDetected</td></tr>
+      <tr><td>OnDrawGizmos()</td><td>Scene 视图 Gizmos 开启时</td><td>绘制地面/墙壁检测射线，便于调试 Inspector 参数</td></tr>
+    </table>
+  </section>
+
+  <section id="entity-combat">
+    <h2>Entity_Combat.cs</h2>
+    <div class="path">Assets/Scripts/Entity/Entity_Combat.cs</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>vfx</td><td>Awake 缓存 Entity_VFX；命中后更新颜色、生成粒子</td></tr>
+      <tr><td>stats</td><td>Awake 缓存 Entity_Stats；读取伤害数值</td></tr>
+      <tr><td>targetCheck</td><td>OverlapCircle 圆心 Transform</td></tr>
+      <tr><td>targetCheckRadius</td><td>攻击检测半径，默认 1</td></tr>
+      <tr><td>whatIsTarget</td><td>目标 LayerMask（敌人/玩家/可破坏物等）</td></tr>
+      <tr><td>defaultDuration</td><td>元素状态默认持续时间，默认 3 秒</td></tr>
+      <tr><td>chillSlowMultiplier</td><td>冰冻减速比例，默认 0.2（即保留 80% 速度 → Player 用 1-slowMultiplier）</td></tr>
+      <tr><td>electrifyChargeBuildUp</td><td>每次感电攻击增加的 charge，默认 0.4</td></tr>
+      <tr><td>fireScale</td><td>燃烧 DOT 总伤缩放，默认 0.8</td></tr>
+      <tr><td>lightningScale</td><td>落雷伤害缩放，默认 2.5</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Unity 生命周期</td><td>GetComponent Entity_VFX、Entity_Stats</td></tr>
+      <tr><td>PerformAttack()</td><td>Entity_AnimationTriggers.AttackTrigger 动画事件（攻击帧）</td><td>遍历 GetDetectedColliders()：取 IDamagable → GetElementalDamage(0.6f) + GetPhysicalDamage → TakeDamage；若 element≠None 则 ApplyStatusEffect；若命中则 UpdateOnHitColor + CreateOnHitVFX</td></tr>
+      <tr><td>ApplyStatusEffect(target, element, scaleFactor=1)</td><td>PerformAttack 命中且带元素时；也可外部直接调用</td><td>取 Entity_StatusHandler；CanBeApplied 通过后：Ice→ApplyChillEffect；Fire→fireDamage×fireScale→ApplyBurnEffect；Lightning→lightningDamage×lightningScale→ApplyElectrifyEffect</td></tr>
+      <tr><td>GetDetectedColliders()</td><td>PerformAttack、Player_Combat.CounterAttackPerformed</td><td>protected：Physics2D.OverlapCircleAll(targetCheck.position, targetCheckRadius, whatIsTarget)</td></tr>
+      <tr><td>OnDrawGizmos()</td><td>Scene 视图</td><td>绘制 targetCheck 位置攻击范围线框球</td></tr>
+    </table>
+  </section>
+
+  <section id="entity-health">
+    <h2>Entity_Health.cs</h2>
+    <div class="path">Assets/Scripts/Entity/Entity_Health.cs · 实现 IDamagable</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>entityVfx / entity / entityStats</td><td>Awake 缓存；VFX、击退、死亡、属性读取</td></tr>
+      <tr><td>healthBar</td><td>子物体 Slider；UpdateHealthBar 同步比例</td></tr>
+      <tr><td>currentHealth</td><td>当前生命值；Awake 设为 GetMaxHealth()</td></tr>
+      <tr><td>isDead</td><td>死亡标记；TakeDamage/IncreaseHealth 前置检查</td></tr>
+      <tr><td>regenInterval</td><td>InvokeRepeating 回血间隔，默认 1 秒</td></tr>
+      <tr><td>canRegenerateHealth</td><td>是否允许自动回血</td></tr>
+      <tr><td>knockbackPower</td><td>普通受击击退 Vector2，默认 (1.5, 2.5)</td></tr>
+      <tr><td>heavyKnockbackpower</td><td>重击击退 Vector2，默认 (7, 7)</td></tr>
+      <tr><td>knockbackDuration</td><td>普通击退时长，默认 0.2s</td></tr>
+      <tr><td>heavyKnockbackDuration</td><td>重击击退时长，默认 0.5s</td></tr>
+      <tr><td>heavyDamageThreshold</td><td>单次物理伤害 / 最大生命 &gt; 此值视为重击，默认 0.3（30%）</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Unity 生命周期</td><td>缓存组件；currentHealth=GetMaxHealth()；UpdateHealthBar()；InvokeRepeating(RegenerateHealth, 0, regenInterval)</td></tr>
+      <tr><td>TakeDamage(damage, elementalDamage, element, damageDealer)</td><td>Entity_Combat.PerformAttack 通过 IDamagable 调用</td><td>virtual：死亡/闪避检查 → 读攻击者 armorReduction → 护甲减免物理、抗性减免元素 → TakeKnockback → ReduceHealth → return true；未命中 return false</td></tr>
+      <tr><td>AttackEvaded()</td><td>TakeDamage 开头</td><td>private：Random.Range(0,100) &lt; entityStats.GetEvasion() 则闪避成功</td></tr>
+      <tr><td>RegenerateHealth()</td><td>InvokeRepeating 每 regenInterval 秒</td><td>private：canRegenerateHealth 为 false 则 return；否则 IncreaseHealth(healthRegen.GetValue())</td></tr>
+      <tr><td>IncreaseHealth(healAmount)</td><td>RegenerateHealth、治疗技能/道具（外部）</td><td>死亡则 return；currentHealth=min(current+heal, maxHealth)；UpdateHealthBar()</td></tr>
+      <tr><td>ReduceHealth(damage)</td><td>TakeDamage、BurnEffectCo 每 tick、DoLightningStrike</td><td>PlayOnDamageVfx()；currentHealth-=damage；UpdateHealthBar()；&lt;=0 则 Die()</td></tr>
+      <tr><td>Die()</td><td>ReduceHealth 扣至 ≤0</td><td>protected：isDead=true；entity.EntityDeath()</td></tr>
+      <tr><td>UpdateHealthBar()</td><td>Awake、IncreaseHealth、ReduceHealth 后</td><td>private：healthBar 为 null 则 return；Slider.value = currentHealth / GetMaxHealth()</td></tr>
+      <tr><td>TakeKnockback(damageDealer, finalDamage)</td><td>TakeDamage 护甲计算后</td><td>private：CalculateKnockback + CalculateDuration → entity.ReceiveKnockback</td></tr>
+      <tr><td>CalculateKnockback(damage, damageDealer)</td><td>TakeKnockback 内</td><td>private：根据受击者与攻击者 X 位置差定左右方向；IsHeavyDamage 选 heavy 或普通 knockback 向量，x 乘 direction</td></tr>
+      <tr><td>CalculateDuration(damage)</td><td>TakeKnockback 内</td><td>private：IsHeavyDamage ? heavyKnockbackDuration : knockbackDuration</td></tr>
+      <tr><td>IsHeavyDamage(damage)</td><td>CalculateKnockback / CalculateDuration</td><td>private：damage / GetMaxHealth() &gt; heavyDamageThreshold</td></tr>
+    </table>
+  </section>
+
+  <section id="entity-status">
+    <h2>Entity_StatusHandler.cs</h2>
+    <div class="path">Assets/Scripts/Entity/Entity_StatusHandler.cs</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>entity / entityVfx / entityStats / entityHealth</td><td>Awake 缓存；减速、VFX、抗性、扣血</td></tr>
+      <tr><td>currentEffect</td><td>当前异常类型；CanBeApplied 互斥判断</td></tr>
+      <tr><td>lightningStrikeVfx</td><td>charge 满时 Instantiate 的落雷预制体</td></tr>
+      <tr><td>currentCharge / maximumCharge</td><td>感电充能当前值 / 上限（默认 1）</td></tr>
+      <tr><td>electrifyCo</td><td>感电状态协程句柄</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Unity 生命周期</td><td>缓存 Entity、Entity_VFX、Entity_Stats、Entity_Health</td></tr>
+      <tr><td>ApplyElectrifyEffect(duration, damage, charge)</td><td>Entity_Combat.ApplyStatusEffect（Lightning）</td><td>雷抗减 charge → currentCharge+=finalCharge；若 ≥maximumCharge → DoLightningStrike + StopElectrifyEffect；否则 Stop 旧协程并 Start ElectrifyEffectCo</td></tr>
+      <tr><td>StopElectrifyEffect()</td><td>charge 满落雷后；ElectrifyEffectCo 超时</td><td>private：currentEffect=None；currentCharge=0；entityVfx.StopAllVfx()</td></tr>
+      <tr><td>DoLightningStrike(damage)</td><td>ApplyElectrifyEffect charge 满时</td><td>private：Instantiate lightningStrikeVfx；entityHealth.ReduceHealth(damage)</td></tr>
+      <tr><td>ElectrifyEffectCo(duration)</td><td>ApplyElectrifyEffect 未满 charge 时</td><td>协程：currentEffect=Lightning；PlayOnStatusVfx(duration, Lightning)；WaitForSeconds(duration)；StopElectrifyEffect()</td></tr>
+      <tr><td>ApplyBurnEffect(duration, fireDamage)</td><td>Entity_Combat.ApplyStatusEffect（Fire）</td><td>火抗减 fireDamage → StartCoroutine(BurnEffectCo)</td></tr>
+      <tr><td>BurnEffectCo(duration, totalDamage)</td><td>ApplyBurnEffect</td><td>协程：currentEffect=Fire；PlayOnStatusVfx；ticksPerSecond=2 分段 DOT；每 tick ReduceHealth(damagePerTick)；结束 currentEffect=None</td></tr>
+      <tr><td>ApplyChillEffect(duration, slowMultiplier)</td><td>Entity_Combat.ApplyStatusEffect（Ice）</td><td>冰抗减 duration → StartCoroutine(ChilledEffectCo)</td></tr>
+      <tr><td>ChilledEffectCo(duration, slowMultiplier)</td><td>ApplyChillEffect</td><td>协程：entity.SlowDownEntity；currentEffect=Ice；PlayOnStatusVfx；WaitForSeconds；currentEffect=None</td></tr>
+      <tr><td>CanBeApplied(element)</td><td>ApplyStatusEffect 施加前</td><td>Lightning 且已在感电 → true（可叠 charge）；否则要求 currentEffect==None</td></tr>
+    </table>
+  </section>
+
+  <section id="entity-vfx">
+    <h2>Entity_VFX.cs</h2>
+    <div class="path">Assets/Scripts/Entity/Entity_VFX.cs</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>sr</td><td>子物体 SpriteRenderer；换材质、改 color 闪烁</td></tr>
+      <tr><td>entity</td><td>读 facingDir 决定命中 VFX 是否翻转</td></tr>
+      <tr><td>onDamageMaterial</td><td>受击时临时替换的材质（闪白）</td></tr>
+      <tr><td>onDamageVfxDuration</td><td>受击材质持续时间，默认 0.2s</td></tr>
+      <tr><td>originalMaterial</td><td>Awake 保存，受击结束后还原</td></tr>
+      <tr><td>onDamageVfxCoroutine</td><td>受击协程句柄；连击刷新时长</td></tr>
+      <tr><td>hitVfxColor / originalHitVfxColor</td><td>命中粒子 tint；元素攻击时临时改色</td></tr>
+      <tr><td>hitVFX / critHitVFX</td><td>普通 / 暴击命中粒子预制体</td></tr>
+      <tr><td>chillVfx / burnVfx / electrifyVfx</td><td>冰/火/雷状态闪烁颜色</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Unity 生命周期</td><td>缓存 sr、entity；保存 originalMaterial、originalHitVfxColor</td></tr>
+      <tr><td>PlayOnStatusVfx(duration, element)</td><td>Entity_StatusHandler 各状态协程</td><td>按 element 选 chill/burn/electrify 颜色，StartCoroutine(PlayStatusVfxCo)</td></tr>
+      <tr><td>StopAllVfx()</td><td>Entity_StatusHandler.StopElectrifyEffect</td><td>StopAllCoroutines()；sr.color=White；sr.material=originalMaterial</td></tr>
+      <tr><td>PlayStatusVfxCo(duration, effectColor)</td><td>PlayOnStatusVfx 内部</td><td>private 协程：每 0.25s 在 lightColor/darkColor 间 toggle sr.color；结束后恢复 White</td></tr>
+      <tr><td>CreateOnHitVFX(target, isCrit)</td><td>Entity_Combat.PerformAttack 命中后</td><td>isCrit 为 true 用 hitVFX、false 用 critHitVFX（代码现状）；Instantiate 于 target.position；子 SpriteRenderer 设 hitVfxColor；facingDir==-1 且 isCrit 时 Y 轴转 180°</td></tr>
+      <tr><td>UpdateOnHitColor(element)</td><td>PerformAttack 命中后、CreateOnHitVFX 前</td><td>Ice → hitVfxColor=chillVfx；None → 恢复 originalHitVfxColor；Fire/Lightning 不改（仍用当前 hitVfxColor）</td></tr>
+      <tr><td>PlayOnDamageVfx()</td><td>Entity_Health.ReduceHealth、Object_Chest.TakeDamage</td><td>若已有 onDamageVfxCoroutine 则 Stop；Start OnDamageVfxCo（连击刷新闪白时长）</td></tr>
+      <tr><td>OnDamageVfxCo()</td><td>PlayOnDamageVfx 内部</td><td>private 协程：sr.material=onDamageMaterial → Wait onDamageVfxDuration → 还原 originalMaterial</td></tr>
+    </table>
+  </section>
+
+  <section id="entity-anim">
+    <h2>Entity_AnimationTriggers.cs</h2>
+    <div class="path">Assets/Scripts/Entity/Entity_AnimationTriggers.cs · 挂在 Animator 子物体</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>entity</td><td>GetComponentInParent&lt;Entity&gt;()；转发状态动画事件</td></tr>
+      <tr><td>entityCombat</td><td>GetComponentInParent&lt;Entity_Combat&gt;()；攻击事件</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Unity 生命周期；Enemy 有 EnemyAnnimationTriggers 继承</td><td>protected virtual：缓存父级 entity、entityCombat</td></tr>
+      <tr><td>CurrentStateTrigger()</td><td>Animator 动画事件（字符串名须一致）</td><td>private：entity.CurrentStateAnimationTrigger() → 当前 State 的 AnimationTrigger()</td></tr>
+      <tr><td>AttackTrigger()</td><td>Animator 攻击动画在命中帧的事件</td><td>private：entityCombat.PerformAttack() 执行伤害与状态</td></tr>
+    </table>
+    <div class="note">敌人使用 <code>EnemyAnnimationTriggers</code> 继承本类，额外有 EnableCounterWindow / DisableCounterWindow 动画事件（见模块 4）。</div>
+  </section>
+
+  <section id="player-combat">
+    <h2>Player_Combat.cs</h2>
+    <div class="path">Assets/Scripts/Player/Player_Combat.cs · 继承 Entity_Combat</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>counterRecovery</td><td>弹反状态最短持续时间 / recovery，默认 0.1s；传给 CounterAttackState.stateTimer</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>CounterAttackPerformed()</td><td>Player_CounterAttackState.Enter() 进入弹反态瞬间</td><td>遍历 GetDetectedColliders()：取 ICounterable；CanBeCountered 为 true 则 HandleCounter() 并标记 hasPerformedCounter；return 是否弹反成功</td></tr>
+      <tr><td>GetCounterRecoveryDuration()</td><td>Player_CounterAttackState.Enter()</td><td>return counterRecovery；作为 stateTimer 初值</td></tr>
+    </table>
+  </section>
+
+  <section id="enemy-health">
+    <h2>Enemy_Health.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/Enemy_Health.cs · 继承 Entity_Health</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>enemy</td><td>Start 中 GetComponent&lt;Enemy&gt;()；进战逻辑</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Start()</td><td>Unity 生命周期（在 base Awake 之后）</td><td>缓存 Enemy 引用</td></tr>
+      <tr><td>TakeDamage(...)</td><td>Entity_Combat.PerformAttack 等同 Entity_Health</td><td>override：wasHit=base.TakeDamage(...)；未命中 return false；攻击者有 Player 组件则 enemy.TryEnterBattleState(damageDealer)；return true</td></tr>
+    </table>
+  </section>
+
+  <section id="enemy-vfx">
+    <h2>Enemy_VFX.cs</h2>
+    <div class="path">Assets/Scripts/Enemy/Enemy_VFX.cs · 继承 Entity_VFX</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>attackAlert</td><td>弹反窗口预警 GameObject（如感叹号）；EnableAttackAlert 控制显隐</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Start()</td><td>Unity 生命周期</td><td>protected：EnableAttackAlert(false) 默认隐藏预警</td></tr>
+      <tr><td>EnableAttackAlert(enable)</td><td>EnemyAnnimationTriggers.EnableCounterWindow(true/false)；Enemy_StunnedState.Enter</td><td>attackAlert 为 null 则 return；SetActive(enable) 显示或隐藏弹反提示</td></tr>
+    </table>
+  </section>
+
+  <section id="vfx-auto">
+    <h2>VFX_AutoController.cs</h2>
+    <div class="path">Assets/Scripts/VFX/VFX_AutoController.cs · 挂在命中/落雷等粒子预制体</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>autoDestroy / destroyDelay</td><td>是否在 destroyDelay 秒后 Destroy(gameObject)，默认 true / 1s</td></tr>
+      <tr><td>randomOffset</td><td>是否随机位移，默认 true</td></tr>
+      <tr><td>randomRotation</td><td>是否随机 Z 轴旋转，默认 true</td></tr>
+      <tr><td>minRotation / maxRotation</td><td>随机旋转范围 0~360</td></tr>
+      <tr><td>xMinOffset / xMaxOffset / yMinOffset / yMaxOffset</td><td>随机位置偏移，默认 ±0.3</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Start()</td><td>预制体 Instantiate 后首帧</td><td>ApplyRandomOffset()；ApplyRandomRotation()；autoDestroy 则 Destroy(gameObject, destroyDelay)</td></tr>
+      <tr><td>ApplyRandomOffset()</td><td>Start</td><td>private：randomOffset 为 false 则 return；Random 偏移 x/y 加到 transform.position</td></tr>
+      <tr><td>ApplyRandomRotation()</td><td>Start</td><td>private：randomRotation 为 false 则 return；Random Z 轴 Rotate</td></tr>
+    </table>
+  </section>
+
+  <section id="idamagable">
+    <h2>IDamagable</h2>
+    <div class="path">Assets/Scripts/Interface/IDamagable.cs</div>
+    <span class="tag script">interface</span>
+
+    <h3>接口方法</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>TakeDamage(float damage, float elementalDamage, ElementType element, Transform damageDealer)</td><td>Entity_Combat.PerformAttack 对每个 Overlap 目标</td><td>实现者处理受击逻辑；return bool 表示是否真正命中（未闪避、未死亡跳过等）。Entity_Health 做完整战斗结算；Object_Chest 只做开盖特效</td></tr>
+    </table>
+    <p><strong>实现类：</strong><code>Entity_Health</code>（及 <code>Enemy_Health</code>）、<code>Object_Chest</code>。</p>
+  </section>
+
+  <section id="icounterable">
+    <h2>ICounterable</h2>
+    <div class="path">Assets/Scripts/Interface/ICounterable.cs</div>
+    <span class="tag script">interface</span>
+
+    <h3>接口成员</h3>
+    <table>
+      <tr><th>成员</th><th>何时调用 / 读取</th><th>做什么</th></tr>
+      <tr><td>CanBeCountered { get; }</td><td>Player_Combat.CounterAttackPerformed 扫描目标时</td><td>当前是否处于可弹反窗口。Enemy 上通常绑定 canBeStunned；攻击前动画事件 EnableCounterWindow(true) 打开</td></tr>
+      <tr><td>HandleCounter()</td><td>CanBeCountered 为 true 且玩家弹反成功时</td><td>执行被弹反后果。例：Enemy_Skeleton → ChangeState(stunnedState)</td></tr>
+    </table>
+  </section>
+
+  <section id="object-chest">
+    <h2>Object_Chest.cs</h2>
+    <div class="path">Assets/Scripts/InteractiveObjects/Object_Chest.cs · 实现 IDamagable</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>rb</td><td>属性：GetComponentInChildren&lt;Rigidbody2D&gt;()；受击施加速度</td></tr>
+      <tr><td>anim</td><td>属性：GetComponentInChildren&lt;Animator&gt;()；开盖 bool</td></tr>
+      <tr><td>fx</td><td>属性：GetComponent&lt;Entity_VFX&gt;()；受击闪白</td></tr>
+      <tr><td>knockback</td><td>SerializeField Vector2；受击时赋给 rb.linearVelocity</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>TakeDamage(...)</td><td>玩家攻击 Overlap 到宝箱且 Layer 在 whatIsTarget 内</td><td>fx.PlayOnDamageVfx()；anim.SetBool("chestOpen", true)；rb.linearVelocity=knockback；rb.angularVelocity=Random(-200,200)；return true（不扣血、不护甲、不击退 Entity）</td></tr>
+    </table>
+    <div class="note">宝箱无 Entity_Health，伤害数值被忽略；仅响应「被攻击」事件。</div>
+  </section>
+
+  <section id="element-type">
+    <h2>ElementType 枚举</h2>
+    <div class="path">Assets/Scripts/Enum/ElementType.cs</div>
+    <span class="tag enum">enum</span>
+    <table>
+      <tr><th>值</th><th>含义</th><th>在战斗中的用途</th></tr>
+      <tr><td>None</td><td>无元素</td><td>纯物理攻击；不调用 ApplyStatusEffect；UpdateOnHitColor 恢复默认命中色</td></tr>
+      <tr><td>Fire</td><td>火</td><td>GetElementalDamage 主/副元素；ApplyBurnEffect DOT；PlayOnStatusVfx 红色闪烁</td></tr>
+      <tr><td>Ice</td><td>冰</td><td>ApplyChillEffect 减速；PlayOnStatusVfx 青色闪烁；命中粒子改 chillVfx 色</td></tr>
+      <tr><td>Lightning</td><td>雷</td><td>ApplyElectrifyEffect 充能；满 charge 落雷；PlayOnStatusVfx 黄色闪烁；感电期间可继续叠 charge</td></tr>
+    </table>
+    <div class="note">
+      <strong>与 Entity_Stats 的配合：</strong><code>GetElementalDamage(out element, scaleFactor)</code> 比较 fire/ice/lightning 三项 Stat，最高者为主元素（100% 该元素伤害），其余非零元素各 50%，再 + 智力；scaleFactor 在 PerformAttack 中为 0.6。详见模块 6。
+    </div>
+  </section>
+
+  <section id="faq">
+    <h2>FAQ</h2>
+
+    <h3>攻击何时真正造成伤害？</h3>
+    <p>不在按键瞬间，而在<strong>动画事件</strong> <code>AttackTrigger</code> 触发帧。Animator _clip 里须添加与 <code>Entity_AnimationTriggers.AttackTrigger</code> 同名的事件。</p>
+
+    <h3>TakeDamage 返回 false 时还有什么发生？</h3>
+    <p>不扣血、不击退、不播放命中 VFX（PerformAttack 里 <code>targetGotHit</code> 为 false）。闪避时 Console 会 Log 目标名 evaded。</p>
+
+    <h3>重击（Heavy Knockback）如何判定？</h3>
+    <p>仅看<strong>护甲减免后的物理伤害</strong>占最大生命比例是否 &gt; <code>heavyDamageThreshold</code>（默认 30%）。元素伤害不参与重击判定。</p>
+
+    <h3>为什么冰冻能叠、燃烧不能？</h3>
+    <p><code>CanBeApplied</code>：仅 Lightning 在已感电时仍返回 true；Fire/Ice 要求 <code>currentEffect == None</code>。燃烧进行中再次火攻击不会刷新（需等 BurnEffectCo 结束）。</p>
+
+    <h3>感电 charge 和 Burn tick 伤害吃抗性吗？</h3>
+    <p>ApplyBurnEffect / ApplyElectrifyEffect 入口已用对应抗性缩减<strong>传入的总伤/charge</strong>；BurnEffectCo 内每 tick 的 ReduceHealth 不再二次计算抗性。落雷 DoLightningStrike 的 damage 已是缩放后数值。</p>
+
+    <h3>击退期间为什么无法移动？</h3>
+    <p><code>KnockbackCo</code> 期间 <code>isKnocked=true</code>，<code>SetVelocity</code> 直接 return。击退结束才恢复 State 对速度的控制。</p>
+
+    <h3>弹反判定窗口在哪打开？</h3>
+    <p>敌人攻击动画里 <code>EnableCounterWindow</code> 事件 → <code>Enemy.EnableCounterWindow(true)</code> + <code>Enemy_VFX.EnableAttackAlert(true)</code>。窗口结束或进入 Stunned 时关闭。玩家须在窗口内进入 CounterAttackState 且 Overlap 碰到 CanBeCountered 的敌人。</p>
+
+    <h3>Entity_VFX 暴击预制体是否写反了？</h3>
+    <p>当前代码 <code>CreateOnHitVFX</code> 中 <code>isCrit ? hitVFX : critHitVFX</code>，命名上与直觉相反。文档按<strong>现有代码行为</strong>记录；若表现不对请检查此三元表达式。</p>
+
+    <h3>宝箱为什么需要 Entity_VFX 和 IDamagable？</h3>
+    <p>复用同一套攻击检测（Overlap + IDamagable），无需单独写「开箱」碰撞逻辑。受击只播 VFX + 物理反馈，不走 Entity_Health。</p>
+
+    <h3>需要改伤害公式去哪改？</h3>
+    <p>攻击方：<code>Entity_Stats.GetPhysicalDamage / GetElementalDamage</code>。防御方：<code>GetArmorMitigation / GetElementalResistance / GetEvasion</code>。本模块 Entity_Health.TakeDamage 只调用这些 API。</p>
+  </section>
+
+  <p class="footer">模块 5/8 · 战斗系统</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>核心技能系统 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+
+<nav>
+  <span class="mod-badge">模块 8/8</span>
+  <div class="section">
+    <h2>本模块</h2>
+    <a href="#overview">总览</a>
+    <a href="#architecture">三层架构</a>
+    <a href="#flow-unlock">流程：解锁</a>
+    <a href="#flow-use">流程：释放</a>
+    <a href="#wiring">已接 / 未接</a>
+    <a href="#hierarchy">场景结构</a>
+    <a href="#scripts">脚本清单</a>
+  </div>
+  <div class="section">
+    <h2>核心脚本</h2>
+    <a href="#skill-data">Skill_DataSO</a>
+    <a href="#skill-base">Skill_Base</a>
+    <a href="#skill-dash">Skill_Dash</a>
+    <a href="#skill-manager">Player_SkillManager</a>
+    <a href="#enums">枚举</a>
+  </div>
+  <div class="section">
+    <h2>关联模块</h2>
+    <a href="#player-state">PlayerState 释放</a>
+    <a href="#dash-state">Player_DashState</a>
+    <a href="#ui-unlock">UI_TreeNode 解锁</a>
+    <a href="#faq">常见问题</a>
+    <a href="../README.md">← 总索引</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../README.md">← Learning 总索引</a></div>
+
+  <h1>核心技能系统</h1>
+  <p class="subtitle">技能管理器 · 冷却 · 技能树解锁写入 · Dash 升级分支 · 对照 struct.pdf Dash / Time Echo 技能树</p>
+
+  <div class="module-nav">
+    <a href="../有限状态机/index.html">1 有限状态机</a>
+    <a href="../玩家状态机/index.html">2 玩家状态机</a>
+    <a href="../关卡和摄像机设置/index.html">3 关卡摄像机</a>
+    <a href="../敌人状态机/index.html">4 敌人状态机</a>
+    <a href="../战斗系统/index.html">5 战斗系统</a>
+    <a href="../属性系统/index.html">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html">7 技能树与UI</a>
+    <a href="../核心技能系统/index.html" class="current">8 核心技能</a>
+  </div>
+
+  <section id="overview">
+    <h2>模块总览</h2>
+    <div class="card highlight">
+      <p><strong>这个模块解决什么问题？</strong></p>
+      <ul>
+        <li>在 Player 身上维护<strong>真实技能对象</strong>（如 <code>Skill_Dash</code>），而不是只在 UI 上显示</li>
+        <li>统一管理<strong>冷却</strong>：能不能放技能、什么时候进入 CD</li>
+        <li>接收技能树解锁的<strong>升级数据</strong>（<code>UpgradeData</code>）：升级分支 + 新冷却时间</li>
+        <li>为每种大技能（Dash、未来的 TimeEcho）提供可扩展的子类行为</li>
+      </ul>
+    </div>
+    <div class="note">
+      <strong>和模块 2、7 的分工：</strong><br>
+      · <strong>模块 7</strong> 技能树 UI：点节点、扣技能点、调用 <code>SetSkillUpgrade</code><br>
+      · <strong>本模块</strong>：Player 上的 <code>Skill_Base</code> 组件存 CD 与 upgradeType<br>
+      · <strong>模块 2</strong> <code>Player_DashState</code>：冲刺的<strong>移动、重力、时长</strong>（不是 Skill_Dash 写的）
+    </div>
+  </section>
+
+  <section id="architecture">
+    <h2>三层架构</h2>
+    <div class="flow">【配置层】Skill_DataSO + UpgradeData
+    挂在 UI_TreeNode 上，描述「这个节点解锁后给什么升级」
+        ↓ 解锁时 SetSkillUpgrade
+【运行时层】Skill_Base → Skill_Dash（挂在 Player 子物体）
+    冷却 lastTimeUsed / cooldown、upgradeType、各技能专属效果
+        ↑ GetSkillByType
+【调度层】Player_SkillManager（挂在 Player 上）
+    给 UI 和状态机一个统一入口：SkillType → Skill_Base</div>
+    <table>
+      <tr><th>层</th><th>脚本</th><th>职责</th></tr>
+      <tr><td>配置</td><td>Skill_DataSO, UpgradeData</td><td>编辑器资源，不进 Play 逻辑</td></tr>
+      <tr><td>运行时</td><td>Skill_Base, Skill_Dash</td><td>Play 时真正存在的技能组件</td></tr>
+      <tr><td>调度</td><td>Player_SkillManager</td><td>查找、分发技能引用</td></tr>
+    </table>
+  </section>
+
+  <section id="flow-unlock">
+    <h2>流程 A：技能树解锁（配置 → 运行时）</h2>
+    <div class="flow">玩家点击 UI_TreeNode（满足技能点 / 前置 / 非互斥）
+  → Unlock()
+  → skillTree.skillManager.GetSkillByType(skillData.skillType)
+  → Skill_Base.SetSkillUpgrade(skillData.upgradeData)
+       → upgradeType = upgrade.upgradeType
+       → cooldown = upgrade.cooldown</div>
+    <p>解锁<strong>不会</strong>自动改 <code>Player.dashSpeed</code> / <code>dashDuration</code>，目前只改技能组件上的 <strong>CD</strong> 和 <strong>升级分支标记</strong>。</p>
+  </section>
+
+  <section id="flow-use">
+    <h2>流程 B：按键释放 Dash（冷却 + 状态机）</h2>
+    <div class="flow">任意 PlayerState.Update()（模块 2）
+  → input.Player.Dash 本帧按下 && CanDash()
+       → skills.dash.CanUseSkill()     // Skill_Base：是否在 CD
+       → 非贴墙、当前非 dashState
+  → skills.dash.SetSkillOnCooldown()  // lastTimeUsed = Time.time
+  → ChangeState(player.dashState)     // 模块 2：位移与动画
+
+Player_DashState.Enter
+  → dashDir、gravityScale=0、stateTimer=dashDuration
+  → （当前未调用）Skill_Dash.OnStartEffect()</div>
+  </section>
+
+  <section id="wiring">
+    <h2>已接线 / 未接线（读代码时最容易晕的地方）</h2>
+    <table>
+      <tr><th>功能</th><th>状态</th><th>说明</th></tr>
+      <tr><td>技能树解锁 → SetSkillUpgrade</td><td>✅ 已接</td><td>UI_TreeNode.Unlock 第 63 行</td></tr>
+      <tr><td>解锁改 cooldown</td><td>✅ 已接</td><td>CanUseSkill 用新 cooldown</td></tr>
+      <tr><td>解锁改 upgradeType</td><td>⚠️ 只写入</td><td>变量有值，但效果未触发</td></tr>
+      <tr><td>按 Dash 检查 CD</td><td>✅ 已接</td><td>PlayerState.CanDash → CanUseSkill</td></tr>
+      <tr><td>按 Dash 进入 CD</td><td>✅ 已接</td><td>SetSkillOnCooldown 在切状态前</td></tr>
+      <tr><td>冲刺移动 / 撞墙 / 时长</td><td>✅ 在状态机</td><td>Player_DashState，非 Skill_Dash</td></tr>
+      <tr><td>Dash_CloneOnStart 克隆</td><td>❌ 未接</td><td>OnStartEffect 无调用方</td></tr>
+      <tr><td>Dash_Shard* 碎片</td><td>❌ 未接</td><td>CreateShard 存在但未用</td></tr>
+      <tr><td>SkillType.TimeEcho</td><td>❌ 未实现</td><td>枚举有，Manager switch 无 case</td></tr>
+      <tr><td>RestCooldownBy / 减 CD</td><td>⏳ 预留</td><td>struct.pdf Healing wisp 等未来用</td></tr>
+    </table>
+    <div class="note danger">
+      <strong>作者后续典型接法：</strong>在 <code>Player_DashState.Enter()</code> 里调用 <code>player.skillManager.dash.OnStartEffect()</code>；在 <code>Exit()</code> 里可加 <code>OnEndEffect()</code> 处理 Arrival 类升级。
+    </div>
+  </section>
+
+  <section id="hierarchy">
+    <h2>Player 上的 Hierarchy 建议</h2>
+    <div class="flow">Player
+├── Player_SkillManager          ← GetComponentInChildren 找技能
+├── …其他组件（Entity、Combat、Health）
+└── Skills（或任意子物体名）
+    └── Skill_Dash               ← Skill_Dash : Skill_Base 组件</div>
+    <p><code>Player_SkillManager.Awake</code> 用 <code>GetComponentInChildren&lt;Skill_Dash&gt;()</code>，子物体可在任意深度，但<strong>场景里必须有一个 Skill_Dash 组件</strong>。</p>
+  </section>
+
+  <section id="scripts">
+    <h2>相关脚本清单</h2>
+    <table>
+      <tr><th>文件</th><th>路径</th><th>角色</th></tr>
+      <tr><td>Skill_Base.cs</td><td>Assets/Scripts/SkillSystem/</td><td>技能基类：CD、upgradeType、SetSkillUpgrade</td></tr>
+      <tr><td>Skill_Dash.cs</td><td>Assets/Scripts/SkillSystem/</td><td>冲刺技能：按 upgradeType 触发附加效果</td></tr>
+      <tr><td>Skill_DataSO.cs</td><td>Assets/Scripts/SkillSystem/</td><td>技能树节点配置 ScriptableObject</td></tr>
+      <tr><td>UpgradeData</td><td>Skill_DataSO.cs 同文件</td><td>可序列化升级包</td></tr>
+      <tr><td>Player_SkillManager.cs</td><td>Assets/Scripts/Player/</td><td>SkillType → Skill_Base 查找</td></tr>
+      <tr><td>SkillType.cs</td><td>Assets/Scripts/Enum/</td><td>大技能种类枚举</td></tr>
+      <tr><td>SkillUpgradeType.cs</td><td>Assets/Scripts/Enum/</td><td>Dash 升级分支枚举</td></tr>
+    </table>
+    <p>关联（非本文件夹）：<code>PlayerState.cs</code>、<code>Player_DashState.cs</code>、<code>UI_TreeNode.cs</code>、<code>UI_SkillTree.cs</code></p>
+  </section>
+
+  <section id="skill-data">
+    <h2>Skill_DataSO + UpgradeData</h2>
+    <div class="path">Assets/Scripts/SkillSystem/Skill_DataSO.cs</div>
+    <span class="tag data">ScriptableObject</span>
+    <p>创建：右键 Create → RPG Setup → Skill Data。拖到 <code>UI_TreeNode.skillData</code>。</p>
+
+    <h3>Skill_DataSO 字段</h3>
+    <table>
+      <tr><th>字段</th><th>作用</th></tr>
+      <tr><td>cost</td><td>解锁消耗技能点（UI 用，本模块不读）</td></tr>
+      <tr><td>skillType</td><td>对应哪种技能组件（Dash / TimeEcho）</td></tr>
+      <tr><td>upgradeData</td><td>解锁时传给 SetSkillUpgrade 的数据包</td></tr>
+      <tr><td>displayName / description / icon</td><td>技能树与 Tooltip 展示（本模块不读）</td></tr>
+    </table>
+
+    <h3>UpgradeData 字段</h3>
+    <table>
+      <tr><th>字段</th><th>作用</th></tr>
+      <tr><td>upgradeType</td><td>SkillUpgradeType，决定 Dash 行为分支</td></tr>
+      <tr><td>cooldown</td><td>解锁后写入 Skill_Base.cooldown</td></tr>
+    </table>
+    <p><code>UpgradeData</code> 是独立类（非嵌套在 SO 内部），类型名直接写 <code>UpgradeData</code> 即可。</p>
+  </section>
+
+  <section id="skill-base">
+    <h2>Skill_Base.cs</h2>
+    <div class="path">Assets/Scripts/SkillSystem/Skill_Base.cs · 所有技能的基类组件</div>
+    <span class="tag script">MonoBehaviour</span>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>skillType</td><td>Inspector 标识本组件对应哪种大技能（与 SO 的 skillType 应对齐）</td></tr>
+      <tr><td>upgradeType</td><td>当前激活的升级分支；解锁时由 SetSkillUpgrade 写入</td></tr>
+      <tr><td>cooldown</td><td>技能冷却秒数；解锁时可被 SO 覆盖</td></tr>
+      <tr><td>lastTimeUsed</td><td>上次进入冷却的时间戳（Time.time）</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>组件初始化</td><td>virtual：<code>lastTimeUsed = lastTimeUsed - cooldown</code> → 等价于 <code>-cooldown</code>，让游戏开始时不在 CD 上</td></tr>
+      <tr><td>SetSkillUpgrade(upgrade)</td><td>UI_TreeNode.Unlock</td><td>upgradeType = upgrade.upgradeType；cooldown = upgrade.cooldown</td></tr>
+      <tr><td>CanUseSkill()</td><td>PlayerState.CanDash</td><td>若 OnCooldowm() 为 true 则 Log 并 return false；否则 true</td></tr>
+      <tr><td>OnCooldowm()</td><td>CanUseSkill 内部</td><td>private：Time.time &lt; lastTimeUsed + cooldown</td></tr>
+      <tr><td>SetSkillOnCooldown()</td><td>PlayerState 确认释放 Dash 时</td><td>lastTimeUsed = Time.time，开始计时</td></tr>
+      <tr><td>RestCooldownBy(reduction)</td><td>未来（如 Healing wisp）</td><td>lastTimeUsed += reduction，等效减少剩余 CD</td></tr>
+      <tr><td>RestCooldown()</td><td>未来满重置 CD</td><td>lastTimeUsed = Time.time，立即视为刚用过（需配合逻辑理解；也可理解为重置基准）</td></tr>
+    </table>
+    <div class="note">
+      <strong>Awake 技巧：</strong>lastTimeUsed 默认 0，减 cooldown 后为负数。例如 cooldown=3 → lastTimeUsed=-3，则 CD 结束时刻为 0，开局 Time.time≥0 即可用。
+    </div>
+  </section>
+
+  <section id="skill-dash">
+    <h2>Skill_Dash.cs</h2>
+    <div class="path">Assets/Scripts/SkillSystem/Skill_Dash.cs · 继承 Skill_Base</div>
+    <span class="tag script">MonoBehaviour</span>
+
+    <h3>字段</h3>
+    <p>无新增字段，使用基类 <code>upgradeType</code>、<code>cooldown</code>。</p>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>OnStartEffect()</td><td><strong>应由 DashState.Enter 调用（当前未接）</strong></td><td>若 upgradeType == Dash_CloneOnStart → CreateClone()；其他分支待实现</td></tr>
+      <tr><td>CreateClone()</td><td>OnStartEffect 内</td><td>private：Debug.Log 占位，未来生成 Time Echo 克隆</td></tr>
+      <tr><td>CreateShard()</td><td>未调用</td><td>private：Debug.Log 占位，未来生成 Time Shard</td></tr>
+    </table>
+    <table>
+      <tr><th>SkillUpgradeType</th><th>struct.pdf 含义</th><th>代码状态</th></tr>
+      <tr><td>Dash</td><td>基础冲刺</td><td>无额外 OnStartEffect 分支</td></tr>
+      <tr><td>Dash_CloneOnStart</td><td>冲刺开始留克隆</td><td>仅 CreateClone Log</td></tr>
+      <tr><td>Dash_CloneOnStartAndArrival</td><td>开始+到达都留克隆</td><td>需 OnEndEffect，未写</td></tr>
+      <tr><td>Dash_ShardOnStart</td><td>开始留碎片</td><td>CreateShard 未接入</td></tr>
+      <tr><td>Dash_ShardOnStartAndArrival</td><td>开始+到达留碎片</td><td>未实现</td></tr>
+    </table>
+  </section>
+
+  <section id="skill-manager">
+    <h2>Player_SkillManager.cs</h2>
+    <div class="path">Assets/Scripts/Player/Player_SkillManager.cs · 挂在 Player 上</div>
+
+    <h3>字段</h3>
+    <table>
+      <tr><th>名称</th><th>作用</th></tr>
+      <tr><td>dash</td><td>缓存的 Skill_Dash 引用，只读对外</td></tr>
+    </table>
+
+    <h3>函数</h3>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Awake()</td><td>Player 初始化</td><td>dash = GetComponentInChildren&lt;Skill_Dash&gt;()</td></tr>
+      <tr><td>GetSkillByType(type)</td><td>UI_TreeNode.Unlock；未来其他系统</td><td>switch SkillType：Dash → return dash；其他 Log 未实现并 return null</td></tr>
+    </table>
+    <p>UI 不直接拿 <code>Skill_Dash</code>，只通过 <code>skillData.skillType</code> + Manager，方便以后加 TimeEcho 而不改 UI 代码。</p>
+  </section>
+
+  <section id="enums">
+    <h2>枚举</h2>
+
+    <h3>SkillType</h3>
+    <div class="path">Assets/Scripts/Enum/SkillType.cs</div>
+    <table>
+      <tr><th>值</th><th>含义</th><th>实现</th></tr>
+      <tr><td>Dash</td><td>冲刺技能</td><td>Skill_Dash + Player_DashState</td></tr>
+      <tr><td>TimeEcho</td><td>时间回声（克隆）</td><td>枚举预留，无 Skill 组件与 case</td></tr>
+    </table>
+
+    <h3>SkillUpgradeType</h3>
+    <div class="path">Assets/Scripts/Enum/SkillUpgradeType.cs</div>
+    <p>仅用于 <strong>Dash 树分支</strong>，写在 SO 的 upgradeData.upgradeType 里，由 Skill_Dash 读取。</p>
+    <table>
+      <tr><th>值</th><th>说明</th></tr>
+      <tr><td>Dash</td><td>基础 dash，无附加生成物</td></tr>
+      <tr><td>Dash_CloneOnStart</td><td>冲刺开始时创建 time echo / clone</td></tr>
+      <tr><td>Dash_CloneOnStartAndArrival</td><td>开始与结束都创建 clone</td></tr>
+      <tr><td>Dash_ShardOnStart</td><td>冲刺开始时创建 shard</td></tr>
+      <tr><td>Dash_ShardOnStartAndArrival</td><td>开始与结束都创建 shard</td></tr>
+    </table>
+  </section>
+
+  <section id="player-state">
+    <h2>关联：PlayerState.cs（模块 2）</h2>
+    <div class="path">Assets/Scripts/StateMachine/PlayerState.cs</div>
+    <p>构造时 <code>skills = player.skillManager</code>，每个玩家状态都能检测 Dash。</p>
+    <table>
+      <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
+      <tr><td>Update() override</td><td>所有 PlayerState 每帧</td><td>Dash 键 + CanDash → SetSkillOnCooldown + ChangeState(dashState)</td></tr>
+      <tr><td>CanDash()</td><td>Update 内</td><td>skills.dash.CanUseSkill()；非 wallDetected；当前不是 dashState</td></tr>
+    </table>
+    <p>技能系统<strong>不切换状态</strong>，只回答「能不能放」和「记 CD」；切换由状态机完成。</p>
+  </section>
+
+  <section id="dash-state">
+    <h2>关联：Player_DashState.cs（模块 2）</h2>
+    <div class="path">Assets/Scripts/Player/PlayerStates/Player_DashState.cs</div>
+    <table>
+      <tr><th>函数</th><th>做什么</th><th>与 Skill_Dash 关系</th></tr>
+      <tr><td>Enter</td><td>定方向、关重力、stateTimer=dashDuration</td><td>应在此调用 OnStartEffect（未接）</td></tr>
+      <tr><td>Update</td><td>恒定 dash 速度、计时结束回 idle/fall、撞墙 Cancel</td><td>不读 upgradeType</td></tr>
+      <tr><td>Exit</td><td>速度清零、恢复重力</td><td>可在此调用 OnEndEffect（未写）</td></tr>
+    </table>
+    <p><code>dashSpeed</code>、<code>dashDuration</code> 在 <code>Player.cs</code> Inspector，<strong>不在</strong> Skill_DataSO 里。</p>
+  </section>
+
+  <section id="ui-unlock">
+    <h2>关联：UI_TreeNode.Unlock（模块 7）</h2>
+    <div class="path">Assets/Scripts/UI/UI_TreeNode.cs</div>
+    <table>
+      <tr><th>步骤</th><th>做什么</th></tr>
+      <tr><td>CanBeUnlocked</td><td>技能点、前置、互斥检查（与本模块无关）</td></tr>
+      <tr><td>Unlock 末尾</td><td>GetSkillByType(skillData.skillType).SetSkillUpgrade(skillData.upgradeData)</td></tr>
+    </table>
+    <p><code>UI_SkillTree.Awake</code> 缓存 <code>Player_SkillManager</code>，供所有节点解锁时使用。</p>
+  </section>
+
+  <section id="faq">
+    <h2>常见问题</h2>
+    <div class="card">
+      <h4>树上解锁了「克隆冲刺」，游戏里没克隆？</h4>
+      <p>正常。unlock 只写了 <code>upgradeType</code>，<code>OnStartEffect()</code> 没有任何地方调用。需要在 <code>Player_DashState.Enter</code> 接上。</p>
+    </div>
+    <div class="card">
+      <h4>技能系统和 Player_DashState 谁管冲刺？</h4>
+      <p><strong>分工：</strong>Skill_Base 管 CD；DashState 管移动；Skill_Dash 管升级带来的<strong>额外效果</strong>（生成物等）。</p>
+    </div>
+    <div class="card">
+      <h4>解锁后 CD 变了但手感没变？</h4>
+      <p>SO 的 upgradeData 只改 <code>Skill_Base.cooldown</code>，不改 <code>Player.dashSpeed</code> / <code>dashDuration</code>。要改冲刺距离需改 Player 参数或扩展 UpgradeData 字段。</p>
+    </div>
+    <div class="card">
+      <h4>GetSkillByType 返回 null？</h4>
+      <p>检查：SO 的 skillType 是否为已实现的 Dash；场景里是否有 Skill_Dash 子组件；TimeEcho 等未实现类型会 Log 并返回 null。</p>
+    </div>
+    <div class="card">
+      <h4>SetSkillUpgrade 参数类型报错？</h4>
+      <p>传整个 <code>skillData.upgradeData</code>（UpgradeData 对象），不是 <code>.upgradeType</code> 枚举。见模块 7 FAQ。</p>
+    </div>
+    <div class="card">
+      <h4>RestCooldownBy 是干什么的？</h4>
+      <p>struct.pdf 里 Healing wisp「减少其他技能 CD 1 秒」会用到。对 lastTimeUsed 做加法，相当于让冷却结束时间提前。</p>
+    </div>
+  </section>
+
+  <p class="footer">模块 8/8 · 核心技能系统</p>
+</main>
+
+</body>
+</html>
