@@ -11,7 +11,7 @@ public enum SkillUpgradeType
 
     Shard,  //碎片在有敌人接近/到时间会产生爆炸
     Shard_MoveToEnemy,  //碎片会朝着敌人移动
-    Shard_TripleCast,   //碎片会有n次充能
+    Shard_Multicast,   //碎片会有n次充能
     Shard_Teleport, //和最后一个创建的碎片交换位置
-    Shard_TeleportAndHeal,  //交换位置，并且可以回复状态到创建碎片的状态
+    Shard_TeleportHpRewind,  //交换位置，并且可以回复状态到创建碎片的状态
 }

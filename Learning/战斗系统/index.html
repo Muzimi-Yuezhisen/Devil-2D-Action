@@ -14,6 +14,7 @@
     <a href="#overview">总览</a>
     <a href="#flow">伤害流程</a>
     <a href="#scripts">脚本清单</a>
+    <a href="#attack-data">AttackData 管道</a>
     <a href="#entity">Entity.cs</a>
     <a href="#entity-combat">Entity_Combat.cs</a>
     <a href="#entity-health">Entity_Health.cs</a>
@@ -35,7 +36,7 @@
 <main>
   <div class="back"><a href="../README.md">← Learning 总索引</a></div>
   <h1>战斗系统</h1>
-  <p class="subtitle">攻击检测 · 物理/元素伤害 · 状态效果 · 弹反 · 击退 · 依赖模块 6 属性系统（Entity_Stats 公式）</p>
+  <p class="subtitle">攻击检测 · AttackData 统一伤害包 · DamageScaleData 缩放 · 元素状态 · 弹反 · 击退</p>
 
   <div class="module-nav">
     <a href="../有限状态机/index.html">1 有限状态机</a>
@@ -55,7 +56,8 @@
       <ul>
         <li><code>Entity</code> — 物理移动、翻转、击退锁定、地面/墙壁射线、状态机每帧 Update</li>
         <li><code>Entity_AnimationTriggers</code> — 动画事件入口：转发状态触发器 / 调用 <code>PerformAttack</code></li>
-        <li><code>Entity_Combat</code> — OverlapCircle 找目标 → 读 <code>Entity_Stats</code> 算伤害 → <code>IDamagable.TakeDamage</code> → 施加元素状态 → 命中 VFX</li>
+        <li><code>Entity_Combat</code> — OverlapCircle 找目标 → <code>stats.GetAttackData(basicAttackScale)</code> → <code>TakeDamage</code> → <code>ApplyStatusEffect(element, effectData)</code> → 命中 VFX</li>
+        <li><code>AttackData</code> / <code>DamageScaleData</code> / <code>ElementalEffectData</code>（<code>Assets/Scripts/Data/</code>）— 普攻与技能生成物共用的伤害/状态数据包</li>
         <li><code>Entity_Health</code> — 闪避、护甲/抗性减免、扣血、回血、击退、死亡</li>
         <li><code>Entity_StatusHandler</code> — 冰冻减速、燃烧 DOT、感电充能落雷</li>
         <li><code>Entity_VFX</code> — 受击闪白、命中粒子、异常状态颜色闪烁</li>
@@ -85,12 +87,15 @@ PerformAttack()
   → target.GetComponent&lt;IDamagable&gt;()
   → 若无 IDamagable → continue 跳过
 
-【伤害计算 — 攻击方 Entity_Stats】
-  → stats.GetElementalDamage(out element, 0.6f)   // 元素伤害 + 主元素类型
-  → stats.GetPhysicalDamage(out isCrit)           // 物理伤害 + 是否暴击
+【伤害计算 — AttackData 管道】
+  → AttackData attackData = stats.GetAttackData(basicAttackScale)
+       physicalDamage = GetPhysicalDamage(out isCrit, scale.physical)
+       elementalDamage = GetElementalDamage(out element, scale.elemental)
+       effectData = new ElementalEffectData(stats, scale)
+  → 场景中 basicAttackScale 常见：physical=1，elemental≈0.4（不再写死 0.6f）
 
 【受击处理 — IDamagable.TakeDamage】
-Entity_Health.TakeDamage(damage, elementalDamage, element, transform)
+Entity_Health.TakeDamage(physDamage, elementalDamage, element, transform)
   ├─ isDead == true → return false
   ├─ AttackEvaded() → Random(0,100) &lt; GetEvasion() → return false
   ├─ 攻击者 Entity_Stats.GetArmorReduction() → armorReduction
@@ -113,22 +118,16 @@ Entity_Health.TakeDamage(damage, elementalDamage, element, transform)
   base.TakeDamage 命中后
   → damageDealer 有 Player 组件 → enemy.TryEnterBattleState(damageDealer)
 
-【元素状态 — 攻击命中且 element != None】
-Entity_Combat.ApplyStatusEffect(target.transform, element)
-  → target.GetComponent&lt;Entity_StatusHandler&gt;()
-  → CanBeApplied(element) 检查是否可挂状态
-  ├─ Ice  → ApplyChillEffect(duration, chillSlowMultiplier)
-  │           → 冰抗减时长 → ChilledEffectCo → SlowDownEntity + PlayOnStatusVfx
-  ├─ Fire → ApplyBurnEffect(duration, fireDamage × fireScale)
-  │           → 火抗减总伤 → BurnEffectCo → 每秒 2 tick DOT
-  └─ Lightning → ApplyElectrifyEffect(duration, lightningDamage × lightningScale, charge)
-                 → 雷抗减充能 → 累加 currentCharge
-                 → charge &gt;= maximumCharge → DoLightningStrike + StopElectrifyEffect
-                 → 否则 ElectrifyEffectCo → PlayOnStatusVfx，超时清 charge
+【元素状态 — element != None】
+  → statusHandler.ApplyStatusEffect(element, attackData.effectData)
+  ├─ Ice  → ApplyChillEffect(chillDuration, chillSlowMultiplier)
+  ├─ Fire → ApplyBurnEffect(burnDuration, totalBurnDamage)
+  │           totalBurnDamage = fireDamage × burnDamageScale（在 ElementalEffectData 构造时算好）
+  └─ Lightning → ApplyShockEffect(shockDuration, shockDamage, shockCharge)
+                 shockDamage = lightningDamage × shockDamageScale
 
 【命中 VFX — targetGotHit == true】
-  → vfx.UpdateOnHitColor(element)      // 改攻击方命中粒子颜色
-  → vfx.CreateOnHitVFX(target, isCrit) // 在目标位置生成 hit/crit 预制体
+  → vfx.CreateOnHitVFX(target, isCrit, element)
 
 【弹反流程 — 独立于 PerformAttack】
 Player 按 CounterAttack → Player_CounterAttackState.Enter()
@@ -138,7 +137,12 @@ Player 按 CounterAttack → Player_CounterAttackState.Enter()
 敌人攻击动画事件 EnableCounterWindow → canBeStunned=true + Enemy_VFX.EnableAttackAlert(true)
 
 【非战斗 IDamagable — Object_Chest】
-TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护甲/不扣血）</div>
+TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护甲/不扣血）
+
+【技能生成物共用同一管道】
+SkillObject_Base.DamageEnemiesInRadius
+  → 同样 GetAttackData(damageScaleData) → TakeDamage + ApplyStatusEffect
+  → 缩放来自技能解锁写入的 Skill_Base.damageScaleData（见模块 8）</div>
   </section>
 
   <section id="scripts">
@@ -146,7 +150,10 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
     <table>
       <tr><th>脚本</th><th>路径</th><th>挂载对象</th><th>职责</th></tr>
       <tr><td>Entity.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy 根物体</td><td>移动、翻转、击退、碰撞检测、状态机驱动</td></tr>
-      <tr><td>Entity_Combat.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy</td><td>攻击范围检测、伤害结算、元素状态施加</td></tr>
+      <tr><td>Entity_Combat.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy</td><td>攻击检测；GetAttackData(basicAttackScale) 结算</td></tr>
+      <tr><td>AttackData.cs</td><td>Assets/Scripts/Data/</td><td>—</td><td>一次攻击的物理/元素/暴击/状态包</td></tr>
+      <tr><td>DamageScaleData.cs</td><td>Assets/Scripts/Data/</td><td>—</td><td>物理/元素缩放 + 冰火雷状态参数</td></tr>
+      <tr><td>ElementalEffectData.cs</td><td>Assets/Scripts/Data/</td><td>—</td><td>由 Stats+Scale 算出的状态数值</td></tr>
       <tr><td>Entity_Health.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy / 可破坏物</td><td>生命值、闪避、护甲/抗性、回血、死亡</td></tr>
       <tr><td>Entity_StatusHandler.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy</td><td>冰冻 / 燃烧 / 感电协程</td></tr>
       <tr><td>Entity_VFX.cs</td><td>Assets/Scripts/Entity/</td><td>Player / Enemy / Chest</td><td>受击/命中/状态视觉特效</td></tr>
@@ -160,6 +167,22 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
       <tr><td>Object_Chest.cs</td><td>Assets/Scripts/InteractiveObjects/</td><td>宝箱</td><td>受击开盖（特殊 IDamagable）</td></tr>
       <tr><td>ElementType.cs</td><td>Assets/Scripts/Enum/</td><td>—</td><td>元素类型枚举</td></tr>
     </table>
+  </section>
+
+  <section id="attack-data">
+    <h2>AttackData 管道（Data/）</h2>
+    <div class="path">Assets/Scripts/Data/AttackData.cs · DamageScaleData.cs · ElementalEffectData.cs</div>
+    <table>
+      <tr><th>类型</th><th>作用</th></tr>
+      <tr><td>DamageScaleData</td><td>可序列化缩放：physical / elemental；冰火雷时长与 burnDamageScale、shockDamageScale、shockCharge 等</td></tr>
+      <tr><td>AttackData</td><td>一次命中结果：physicalDamage、elementalDamage、isCrit、element、effectData。由 <code>new AttackData(stats, scale)</code> 构造</td></tr>
+      <tr><td>ElementalEffectData</td><td>状态用数值：chill*；totalBurnDamage=fire×burnScale；shockDamage=lightning×shockScale；shockCharge</td></tr>
+    </table>
+    <div class="flow">调用方提供 DamageScaleData
+  → stats.GetAttackData(scale)
+  → TakeDamage(phys, elem, element)
+  → ApplyStatusEffect(element, effectData)</div>
+    <p>普攻：<code>Entity_Combat.basicAttackScale</code>。技能：解锁写入的 <code>Skill_Base.damageScaleData</code>（模块 8）。</p>
   </section>
 
   <section id="entity">
@@ -222,22 +245,21 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
       <tr><td>targetCheck</td><td>OverlapCircle 圆心 Transform</td></tr>
       <tr><td>targetCheckRadius</td><td>攻击检测半径，默认 1</td></tr>
       <tr><td>whatIsTarget</td><td>目标 LayerMask（敌人/玩家/可破坏物等）</td></tr>
-      <tr><td>defaultDuration</td><td>元素状态默认持续时间，默认 3 秒</td></tr>
-      <tr><td>chillSlowMultiplier</td><td>冰冻减速比例，默认 0.2（即保留 80% 速度 → Player 用 1-slowMultiplier）</td></tr>
-      <tr><td>electrifyChargeBuildUp</td><td>每次感电攻击增加的 charge，默认 0.4</td></tr>
-      <tr><td>fireScale</td><td>燃烧 DOT 总伤缩放，默认 0.8</td></tr>
-      <tr><td>lightningScale</td><td>落雷伤害缩放，默认 2.5</td></tr>
+      <tr><td>basicAttackScale</td><td>DamageScaleData：普攻物理/元素缩放与状态参数（替代旧的 fireScale 等字段）</td></tr>
+      <tr><td>targetCheck</td><td>检测圆心 Transform</td></tr>
+      <tr><td>targetCheckRadius</td><td>检测半径，默认 1</td></tr>
+      <tr><td>whatIsTarget</td><td>目标 LayerMask（敌人/玩家/可破坏物等）</td></tr>
     </table>
 
     <h3>函数</h3>
     <table>
       <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
       <tr><td>Awake()</td><td>Unity 生命周期</td><td>GetComponent Entity_VFX、Entity_Stats</td></tr>
-      <tr><td>PerformAttack()</td><td>Entity_AnimationTriggers.AttackTrigger 动画事件（攻击帧）</td><td>遍历 GetDetectedColliders()：取 IDamagable → GetElementalDamage(0.6f) + GetPhysicalDamage → TakeDamage；若 element≠None 则 ApplyStatusEffect；若命中则 UpdateOnHitColor + CreateOnHitVFX</td></tr>
-      <tr><td>ApplyStatusEffect(target, element, scaleFactor=1)</td><td>PerformAttack 命中且带元素时；也可外部直接调用</td><td>取 Entity_StatusHandler；CanBeApplied 通过后：Ice→ApplyChillEffect；Fire→fireDamage×fireScale→ApplyBurnEffect；Lightning→lightningDamage×lightningScale→ApplyElectrifyEffect</td></tr>
-      <tr><td>GetDetectedColliders()</td><td>PerformAttack、Player_Combat.CounterAttackPerformed</td><td>protected：Physics2D.OverlapCircleAll(targetCheck.position, targetCheckRadius, whatIsTarget)</td></tr>
-      <tr><td>OnDrawGizmos()</td><td>Scene 视图</td><td>绘制 targetCheck 位置攻击范围线框球</td></tr>
+      <tr><td>PerformAttack()</td><td>动画 AttackTrigger</td><td>遍历目标：GetAttackData(basicAttackScale) → TakeDamage；element≠None 则 statusHandler.ApplyStatusEffect(element, effectData)；命中则 CreateOnHitVFX(target, isCrit, element)</td></tr>
+      <tr><td>GetDetectedColliders()</td><td>PerformAttack、CounterAttack</td><td>OverlapCircleAll(targetCheck, radius, whatIsTarget)</td></tr>
+      <tr><td>OnDrawGizmos()</td><td>Scene 视图</td><td>绘制攻击范围</td></tr>
     </table>
+    <div class="note">旧的 <code>ApplyStatusEffect(target, element, scaleFactor)</code> 及 fireScale/lightningScale 字段已移除，逻辑迁到 <code>ElementalEffectData</code> + <code>Entity_StatusHandler.ApplyStatusEffect(element, effectData)</code>。</div>
   </section>
 
   <section id="entity-health">
@@ -264,7 +286,9 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
     <table>
       <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
       <tr><td>Awake()</td><td>Unity 生命周期</td><td>缓存组件；currentHealth=GetMaxHealth()；UpdateHealthBar()；InvokeRepeating(RegenerateHealth, 0, regenInterval)</td></tr>
-      <tr><td>TakeDamage(damage, elementalDamage, element, damageDealer)</td><td>Entity_Combat.PerformAttack 通过 IDamagable 调用</td><td>virtual：死亡/闪避检查 → 读攻击者 armorReduction → 护甲减免物理、抗性减免元素 → TakeKnockback → ReduceHealth → return true；未命中 return false</td></tr>
+      <tr><td>TakeDamage(damage, elementalDamage, element, damageDealer)</td><td>PerformAttack / 技能爆炸 通过 IDamagable</td><td>virtual：死亡/闪避 → 护甲与抗性 → TakeKnockback → ReduceHealth → return true</td></tr>
+      <tr><td>GetHealthPercent()</td><td>Skill_Shard HpRewind 放置碎片时</td><td>currentHealth / GetMaxHealth()</td></tr>
+      <tr><td>SetHealthToPercent(percent)</td><td>Skill_Shard 换位回溯</td><td>把当前生命设为最大生命 × percent</td></tr>
       <tr><td>AttackEvaded()</td><td>TakeDamage 开头</td><td>private：Random.Range(0,100) &lt; entityStats.GetEvasion() 则闪避成功</td></tr>
       <tr><td>RegenerateHealth()</td><td>InvokeRepeating 每 regenInterval 秒</td><td>private：canRegenerateHealth 为 false 则 return；否则 IncreaseHealth(healthRegen.GetValue())</td></tr>
       <tr><td>IncreaseHealth(healAmount)</td><td>RegenerateHealth、治疗技能/道具（外部）</td><td>死亡则 return；currentHealth=min(current+heal, maxHealth)；UpdateHealthBar()</td></tr>
@@ -296,15 +320,11 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
     <table>
       <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
       <tr><td>Awake()</td><td>Unity 生命周期</td><td>缓存 Entity、Entity_VFX、Entity_Stats、Entity_Health</td></tr>
-      <tr><td>ApplyElectrifyEffect(duration, damage, charge)</td><td>Entity_Combat.ApplyStatusEffect（Lightning）</td><td>雷抗减 charge → currentCharge+=finalCharge；若 ≥maximumCharge → DoLightningStrike + StopElectrifyEffect；否则 Stop 旧协程并 Start ElectrifyEffectCo</td></tr>
-      <tr><td>StopElectrifyEffect()</td><td>charge 满落雷后；ElectrifyEffectCo 超时</td><td>private：currentEffect=None；currentCharge=0；entityVfx.StopAllVfx()</td></tr>
-      <tr><td>DoLightningStrike(damage)</td><td>ApplyElectrifyEffect charge 满时</td><td>private：Instantiate lightningStrikeVfx；entityHealth.ReduceHealth(damage)</td></tr>
-      <tr><td>ElectrifyEffectCo(duration)</td><td>ApplyElectrifyEffect 未满 charge 时</td><td>协程：currentEffect=Lightning；PlayOnStatusVfx(duration, Lightning)；WaitForSeconds(duration)；StopElectrifyEffect()</td></tr>
-      <tr><td>ApplyBurnEffect(duration, fireDamage)</td><td>Entity_Combat.ApplyStatusEffect（Fire）</td><td>火抗减 fireDamage → StartCoroutine(BurnEffectCo)</td></tr>
-      <tr><td>BurnEffectCo(duration, totalDamage)</td><td>ApplyBurnEffect</td><td>协程：currentEffect=Fire；PlayOnStatusVfx；ticksPerSecond=2 分段 DOT；每 tick ReduceHealth(damagePerTick)；结束 currentEffect=None</td></tr>
-      <tr><td>ApplyChillEffect(duration, slowMultiplier)</td><td>Entity_Combat.ApplyStatusEffect（Ice）</td><td>冰抗减 duration → StartCoroutine(ChilledEffectCo)</td></tr>
-      <tr><td>ChilledEffectCo(duration, slowMultiplier)</td><td>ApplyChillEffect</td><td>协程：entity.SlowDownEntity；currentEffect=Ice；PlayOnStatusVfx；WaitForSeconds；currentEffect=None</td></tr>
-      <tr><td>CanBeApplied(element)</td><td>ApplyStatusEffect 施加前</td><td>Lightning 且已在感电 → true（可叠 charge）；否则要求 currentEffect==None</td></tr>
+      <tr><td>ApplyStatusEffect(element, effectData)</td><td>PerformAttack / SkillObject 爆炸</td><td>按 element 分发：Ice→ApplyChillEffect；Fire→ApplyBurnEffect(totalBurnDamage)；Lightning→ApplyShockEffect(shockDamage, shockCharge)。数值来自 ElementalEffectData</td></tr>
+      <tr><td>ApplyShockEffect(duration, damage, charge)</td><td>ApplyStatusEffect（Lightning）</td><td>雷抗减 charge → 累加；满则 DoLightningStrike；否则感电协程</td></tr>
+      <tr><td>ApplyBurnEffect(duration, fireDamage)</td><td>ApplyStatusEffect（Fire）</td><td>火抗减总伤后 DOT 协程</td></tr>
+      <tr><td>ApplyChillEffect(duration, slowMultiplier)</td><td>ApplyStatusEffect（Ice）</td><td>冰抗减时长后减速协程</td></tr>
+      <tr><td>CanBeApplied(element)</td><td>各 Apply* 前</td><td>Lightning 可叠 charge；否则需 currentEffect==None</td></tr>
     </table>
   </section>
 
@@ -333,8 +353,8 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
       <tr><td>PlayOnStatusVfx(duration, element)</td><td>Entity_StatusHandler 各状态协程</td><td>按 element 选 chill/burn/electrify 颜色，StartCoroutine(PlayStatusVfxCo)</td></tr>
       <tr><td>StopAllVfx()</td><td>Entity_StatusHandler.StopElectrifyEffect</td><td>StopAllCoroutines()；sr.color=White；sr.material=originalMaterial</td></tr>
       <tr><td>PlayStatusVfxCo(duration, effectColor)</td><td>PlayOnStatusVfx 内部</td><td>private 协程：每 0.25s 在 lightColor/darkColor 间 toggle sr.color；结束后恢复 White</td></tr>
-      <tr><td>CreateOnHitVFX(target, isCrit)</td><td>Entity_Combat.PerformAttack 命中后</td><td>isCrit 为 true 用 hitVFX、false 用 critHitVFX（代码现状）；Instantiate 于 target.position；子 SpriteRenderer 设 hitVfxColor；facingDir==-1 且 isCrit 时 Y 轴转 180°</td></tr>
-      <tr><td>UpdateOnHitColor(element)</td><td>PerformAttack 命中后、CreateOnHitVFX 前</td><td>Ice → hitVfxColor=chillVfx；None → 恢复 originalHitVfxColor；Fire/Lightning 不改（仍用当前 hitVfxColor）</td></tr>
+      <tr><td>CreateOnHitVFX(target, isCrit, element)</td><td>PerformAttack 命中后</td><td>按 isCrit 选 prefab（代码：isCrit?hitVFX:critHitVFX）；Instantiate；可选按 element 染色（当前有注释）；facingDir==-1 且 isCrit 时翻转</td></tr>
+      <tr><td>GetElementColor(element)</td><td>SkillObject_Shard 爆炸 VFX 等</td><td>Ice/Fire/Lightning → 对应颜色；供外部染色</td></tr>
       <tr><td>PlayOnDamageVfx()</td><td>Entity_Health.ReduceHealth、Object_Chest.TakeDamage</td><td>若已有 onDamageVfxCoroutine 则 Stop；Start OnDamageVfxCo（连击刷新闪白时长）</td></tr>
       <tr><td>OnDamageVfxCo()</td><td>PlayOnDamageVfx 内部</td><td>private 协程：sr.material=onDamageMaterial → Wait onDamageVfxDuration → 还原 originalMaterial</td></tr>
     </table>
@@ -491,13 +511,13 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
     <span class="tag enum">enum</span>
     <table>
       <tr><th>值</th><th>含义</th><th>在战斗中的用途</th></tr>
-      <tr><td>None</td><td>无元素</td><td>纯物理攻击；不调用 ApplyStatusEffect；UpdateOnHitColor 恢复默认命中色</td></tr>
-      <tr><td>Fire</td><td>火</td><td>GetElementalDamage 主/副元素；ApplyBurnEffect DOT；PlayOnStatusVfx 红色闪烁</td></tr>
-      <tr><td>Ice</td><td>冰</td><td>ApplyChillEffect 减速；PlayOnStatusVfx 青色闪烁；命中粒子改 chillVfx 色</td></tr>
-      <tr><td>Lightning</td><td>雷</td><td>ApplyElectrifyEffect 充能；满 charge 落雷；PlayOnStatusVfx 黄色闪烁；感电期间可继续叠 charge</td></tr>
+      <tr><td>None</td><td>无元素</td><td>纯物理；不调用 ApplyStatusEffect</td></tr>
+      <tr><td>Fire</td><td>火</td><td>主/副元素伤害；Burn DOT（totalBurnDamage）</td></tr>
+      <tr><td>Ice</td><td>冰</td><td>主/副元素伤害；Chill 减速</td></tr>
+      <tr><td>Lightning</td><td>雷</td><td>主/副元素伤害；Shock 充能/落雷</td></tr>
     </table>
     <div class="note">
-      <strong>与 Entity_Stats 的配合：</strong><code>GetElementalDamage(out element, scaleFactor)</code> 比较 fire/ice/lightning 三项 Stat，最高者为主元素（100% 该元素伤害），其余非零元素各 50%，再 + 智力；scaleFactor 在 PerformAttack 中为 0.6。详见模块 6。
+      <strong>与 Entity_Stats 的配合：</strong>调用方先组 <code>AttackData</code>（内含 scaleFactor 来自 <code>DamageScaleData.physical/elemental</code>）。普攻用 <code>basicAttackScale</code>（常见 elemental≈0.4）；技能碎片用解锁写入的 scale。详见模块 6 / 8。
     </div>
   </section>
 
@@ -532,7 +552,7 @@ TakeDamage → PlayOnDamageVfx + 开盖动画 + Rigidbody2D 弹飞（不算护�
     <p>复用同一套攻击检测（Overlap + IDamagable），无需单独写「开箱」碰撞逻辑。受击只播 VFX + 物理反馈，不走 Entity_Health。</p>
 
     <h3>需要改伤害公式去哪改？</h3>
-    <p>攻击方：<code>Entity_Stats.GetPhysicalDamage / GetElementalDamage</code>。防御方：<code>GetArmorMitigation / GetElementalResistance / GetEvasion</code>。本模块 Entity_Health.TakeDamage 只调用这些 API。</p>
+    <p>缩放配置：<code>DamageScaleData</code>（普攻 basicAttackScale / 技能 SO）。公式本体：<code>Entity_Stats.GetPhysicalDamage / GetElementalDamage</code>。防御：<code>GetArmorMitigation / GetElementalResistance / GetEvasion</code>。<code>TakeDamage</code> 只做减免与扣血。</p>
   </section>
 
   <p class="footer">模块 5/8 · 战斗系统</p>

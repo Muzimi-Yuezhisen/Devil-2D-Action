@@ -76,6 +76,9 @@ public class Player : Entity
         stateMachine.Init(idleState);
     }
 
+    //传送玩家的位置
+    public void TeleportPlayer(Vector3 position) => transform.position = position;
+
     protected override IEnumerator SlowDownEntityCo(float duration, float slowMultiplier)
     {
         float originalMoveSpeed = moveSpeed;
@@ -135,7 +138,7 @@ public class Player : Entity
         input.Player.Movement.canceled += ctx => moveInput = Vector2.zero;
 
         input.Player.ToggleSkillTreeUI.performed += ctx => ui.ToggleSkillTreeUI();
-        input.Player.Spell.performed += ctx => skillManager.shard.CreateShard();
+        input.Player.Spell.performed += ctx => skillManager.shard.TryUseSkill();
     }
 
     private void OnDisable()

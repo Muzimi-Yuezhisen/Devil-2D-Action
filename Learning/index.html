@@ -9,7 +9,17 @@
     body { display: block; }
     .hub { max-width: 720px; margin: 0 auto; padding: 3rem 1.5rem; }
     .hub h1 { margin-bottom: 0.5rem; }
-    .modules { list-style: none; padding: 0; margin: 2rem 0; }
+    .hub-section-title {
+      font-size: .8rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin: 2rem 0 .75rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .hub-section-title:first-of-type { margin-top: 1.5rem; }
+    .modules { list-style: none; padding: 0; margin: 0 0 0.5rem; }
     .modules li { margin-bottom: .75rem; }
     .modules a {
       display: block;
@@ -22,7 +32,13 @@
       transition: border-color .15s;
     }
     .modules a:hover { border-color: var(--accent); }
+    .modules a.tools { border-color: #3d4f2e; }
+    .modules a.tools:hover { border-color: var(--accent2); }
+    .modules a.interview { border-color: #4a3d5c; }
+    .modules a.interview:hover { border-color: var(--purple); }
     .modules .num { color: var(--accent); font-weight: 600; margin-right: .5rem; }
+    .modules .num.tool { color: var(--accent2); }
+    .modules .num.interview { color: var(--purple); }
     .modules .desc { display: block; font-size: .85rem; color: var(--muted); margin-top: .25rem; }
   </style>
 </head>
@@ -30,17 +46,40 @@
 <div class="hub">
   <h1>Devil 项目学习</h1>
   <p class="subtitle">按课程顺序梳理各模块脚本与函数 · 对照 Assets/struct.pdf</p>
+
+  <p class="hub-section-title">课程模块</p>
   <ul class="modules">
     <li><a href="有限状态机/index.html"><span class="num">01</span>有限状态机<span class="desc">StateMachine · EntityState — FSM 通用框架</span></a></li>
     <li><a href="玩家状态机/index.html"><span class="num">02</span>玩家状态机<span class="desc">Player · PlayerState · 13 种玩家状态</span></a></li>
     <li><a href="关卡和摄像机设置/index.html"><span class="num">03</span>关卡和摄像机设置<span class="desc">Parallax 视差 · Cinemachine · Tilemap</span></a></li>
     <li><a href="敌人状态机/index.html"><span class="num">04</span>敌人状态机<span class="desc">Enemy · Skeleton · AI 战斗状态</span></a></li>
-    <li><a href="战斗系统/index.html"><span class="num">05</span>战斗系统<span class="desc">伤害 · 元素 · 状态效果 · 弹反 · VFX</span></a></li>
-    <li><a href="属性系统/index.html"><span class="num">06</span>属性系统<span class="desc">Stat · Modifier · 护甲/暴击/元素公式</span></a></li>
-    <li><a href="技能树系统与UI/index.html"><span class="num">07</span>技能树系统与UI<span class="desc">技能树 UI · SO · 解锁与 Dash 升级</span></a></li>
-    <li><a href="核心技能系统/index.html"><span class="num">08</span>核心技能系统<span class="desc">SkillManager · 冷却 · Skill_Dash · 已接/未接一览</span></a></li>
+    <li><a href="战斗系统/index.html"><span class="num">05</span>战斗系统<span class="desc">AttackData · DamageScale · 元素状态 · 弹反 · VFX</span></a></li>
+    <li><a href="属性系统/index.html"><span class="num">06</span>属性系统<span class="desc">Stat · GetAttackData · 护甲/暴击/元素公式</span></a></li>
+    <li><a href="技能树系统与UI/index.html"><span class="num">07</span>技能树系统与UI<span class="desc">技能树 UI · SO · unlockedByDefault · UpgradeData</span></a></li>
+    <li><a href="核心技能系统/index.html"><span class="num">08</span>核心技能系统<span class="desc">Dash / Time Shard 全分支 · 生成物伤害 · 冷却解锁</span></a></li>
   </ul>
-  <p style="color:var(--muted);font-size:.9rem;">源码：<code>Assets/Scripts/</code> · 框架图：<code>Assets/struct.pdf</code></p>
+
+  <p class="hub-section-title">面试向</p>
+  <ul class="modules">
+    <li>
+      <a class="interview" href="设计决策与面试/index.html">
+        <span class="num interview">Why</span>设计决策与面试
+        <span class="desc">含其他技术「怎么做」的讲解 · 再对照本项目为何选用当前方案</span>
+      </a>
+    </li>
+  </ul>
+
+  <p class="hub-section-title">工程工具</p>
+  <ul class="modules">
+    <li>
+      <a class="tools" href="Git版本管理/index.html">
+        <span class="num tool">Git</span>Git 版本管理
+        <span class="desc">commit / 分支 / GitHub · Unity 忽略规则 · 简历可写表述</span>
+      </a>
+    </li>
+  </ul>
+
+  <p style="color:var(--muted);font-size:.9rem;margin-top:2rem;">源码：<code>Assets/Scripts/</code> · 框架图：<code>Assets/struct.pdf</code></p>
 </div>
 </body>
 </html>

@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设计决策 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+  <style>
+    .tech {
+      display: inline-block;
+      font-size: .75rem;
+      font-family: var(--mono);
+      color: var(--purple);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: .15rem .5rem;
+      margin: 0 .35rem .65rem 0;
+    }
+    .decision h3 { margin-top: 1.35rem; }
+    .decision p, .decision li { margin-bottom: .65rem; }
+    .alt {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+    }
+    .alt h4 {
+      color: var(--warn);
+      margin: 0 0 .5rem;
+      font-size: .95rem;
+    }
+    .alt .how {
+      font-size: .9rem;
+      color: #c9d1d9;
+      margin-bottom: .6rem;
+    }
+    .alt .why-not {
+      font-size: .88rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: .6rem;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <span class="mod-badge">理解向 · 独立栏目</span>
+  <div class="section">
+    <h2>本页</h2>
+    <a href="#intro">怎么用</a>
+    <a href="#glossary">技术名词详解</a>
+    <a href="#g-fsm">· FSM</a>
+    <a href="#g-animator">· Animator</a>
+    <a href="#g-bt">· 行为树</a>
+    <a href="#g-goap">· GOAP</a>
+    <a href="#g-navmesh">· NavMesh</a>
+    <a href="#g-ecs">· ECS / DOTS</a>
+    <a href="#g-timeline">· Timeline</a>
+    <a href="#g-so">· ScriptableObject</a>
+    <a href="#m1">1 有限状态机</a>
+    <a href="#m2">2 玩家状态机</a>
+    <a href="#m3">3 关卡摄像机</a>
+    <a href="#m4">4 敌人状态机</a>
+    <a href="#m5">5 战斗系统</a>
+    <a href="#m6">6 属性系统</a>
+    <a href="#m7">7 技能树 UI</a>
+    <a href="#m8">8 核心技能</a>
+    <a href="#cross">整体架构</a>
+    <a href="../index.html">← 总导航</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../index.html">← Learning 总导航</a></div>
+
+  <h1>设计决策：为什么这么做</h1>
+  <p class="subtitle">先把常见「其他做法」讲清楚（它是什么、怎么跑），再对照本项目为何没用。实现细节仍看课程模块 1–8。</p>
+
+  <div class="module-nav">
+    <a href="../index.html">课程模块 1–8</a>
+    <a href="../设计决策与面试/index.html" class="current">设计决策</a>
+    <a href="../Git版本管理/index.html">Git</a>
+  </div>
+
+  <section id="intro">
+    <h2>怎么用这份材料</h2>
+    <div class="card highlight">
+      <p>读每个「其他做法」时，先弄懂<strong>那套技术自己怎么工作</strong>，再看「对本项目意味着什么」。不要跳过机制直接记优劣结论。</p>
+      <p>文中出现的名词若陌生，先把下面的「技术名词详解」读完（每条都有机制说明，不是一句话定义）；各模块里的对比会默认你已理解这些词。</p>
+    </div>
+  </section>
+
+  <section id="glossary">
+    <h2>技术名词详解</h2>
+    <p class="subtitle" style="margin-bottom:1.5rem;">下面不是背诵卡片，而是把「这套东西在电脑里到底怎么跑」讲开。后面各模块对比时，会默认你读过这里。</p>
+
+    <article id="g-fsm" class="card">
+      <h3>FSM（有限状态机，Finite State Machine）</h3>
+      <p>先想象一台自动售货机：同一时刻它只处于「等待投币 / 已投币选货 / 出货中 / 找零」里的某一种。你投币时，它从「等待」进入「已投币」；出货结束再回到「等待」。它<strong>不会</strong>同时又在出货又在等你投币——这就是「有限个状态、同一时刻只取一个」。</p>
+      <p>游戏里的角色同理。程序员列出有限几种行为（Idle、Run、Jump、Attack…），并规定：</p>
+      <ul>
+        <li><strong>当前状态</strong>决定这一帧执行哪段逻辑（例如 Jump 里检测是否落地）；</li>
+        <li><strong>切换条件</strong>满足时，离开旧状态、进入新状态；</li>
+        <li>离开时常做清理（恢复重力、关攻击盒），进入时常做初始化（播动画、设计时器）。</li>
+      </ul>
+      <p>实现上可以是：一个枚举 + 巨大 switch；或（本项目）每个状态一个类，由 <code>StateMachine</code> 握着「当前状态对象」，切换时调用 <code>Exit()</code> 再 <code>Enter()</code>。无论哪种，核心思想都是<strong>用显式状态替代满地布尔标志</strong>，避免 <code>isJumping &amp;&amp; isAttacking &amp;&amp; !isDead</code> 这种组合爆炸。</p>
+      <p>FSM 的局限：状态很多且需要「同时跑步又瞄准」时，要么状态数爆炸，要么改用分层状态机 / 行为树等。动作游戏角色行为互斥明显时，FSM 非常合适——本项目玩家与敌人都在用。</p>
+    </article>
+
+    <article id="g-animator" class="card">
+      <h3>Animator 状态机（Unity 动画状态机）</h3>
+      <p>Unity 里每个带 <code>Animator</code> 的角色通常有一个 <strong>Animator Controller</strong> 资产。你在 Animator 窗口里看到的，也是一张「状态图」，但这里的状态主要表示<strong>正在播放哪一段 AnimationClip</strong>（站立循环、跑步循环、跳跃片段…），箭头叫 Transition（过渡）。</p>
+      <p>典型工作方式：</p>
+      <ol>
+        <li>在 Controller 里摆状态，每个状态指定一个 Clip，或 Blend Tree（按速度混合走/跑）。</li>
+        <li>在 Parameters 里定义 Bool / Float / Trigger（如 <code>Grounded</code>、<code>Speed</code>、<code>Attack</code>）。</li>
+        <li>代码里 <code>anim.SetBool("Grounded", true)</code> 等；引擎根据 Transition 上的条件自动切换，并可设置淡入淡出时间。</li>
+        <li>在某个 Clip 的某一帧加 <strong>Animation Event</strong>，播放到该帧时回调脚本函数（本项目攻击出伤就靠这个）。</li>
+      </ol>
+      <p>它和「游戏逻辑 FSM」容易混：两边都叫状态机。区别是——Animator 回答「画面上播什么动作」；逻辑 FSM 回答「规则上算不算在攻击、能不能再跳」。可以逻辑已落地但落地动画还没播完，也可以逻辑在墙滑但动画用 Layer 混合。因此较稳妥的做法是：<strong>逻辑 FSM 当主人，Animator 当仆人</strong>（逻辑切状态时 Set 参数），而不是把冷却、伤害判断全写进 Animator 的 Transition 条件里（图一复杂就很难维护）。</p>
+    </article>
+
+    <article id="g-bt" class="card">
+      <h3>行为树（Behavior Tree，BT）</h3>
+      <p>行为树把 AI 想成一棵<strong>任务树</strong>，而不是「当前唯一状态」。设计者先摆控制节点，再挂具体动作叶子。每帧或每隔几毫秒从<strong>根节点</strong>往下评估一次（Tick）。</p>
+      <p>常见节点类型（理解这三种就够入门）：</p>
+      <ul>
+        <li><strong>Sequence（顺序）</strong>：子节点从左到右执行，一个失败整段失败。像食谱：走近 → 抬手 → 砍，中间失败就停。</li>
+        <li><strong>Selector（选择）</strong>：子节点从左到右试，谁先成功就用谁。像优先级列表：能放技能就放，否则普通攻击，否则发呆。</li>
+        <li><strong>Decorator（装饰）</strong>：包住一个子节点，加条件或重复，例如「仅当血量 &lt; 30%」「重复 3 次」。</li>
+      </ul>
+      <p>叶子节点才是真正做事的：移动到某处、播放动画、等待、朝玩家开枪。它们读写一块叫 <strong>Blackboard（黑板）</strong> 的共享数据：当前目标是谁、上次看见玩家的位置、技能是否冷却等。这样「追击子树」和「逃跑子树」都能读到同一个「玩家 Transform」，而不必互相硬引用。</p>
+      <p>和 FSM 的直觉差异：FSM 问「我现在是谁」；行为树问「这一帧任务树允许我做什么」。敌人有大量可选行为、要频繁换策略时，BT 往往比把每种组合做成状态更省事。玩家角色以输入为主、互斥姿势清晰时，FSM 通常更直接——所以本项目没用 BT 当玩家核心，敌人也仍是浅 FSM。</p>
+    </article>
+
+    <article id="g-goap" class="card">
+      <h3>GOAP（Goal-Oriented Action Planning，目标导向动作规划）</h3>
+      <p>GOAP 让 AI 更像「先想目标，再临时凑步骤」，而不是设计师写死整棵树或整张状态图。</p>
+      <p>你需要准备三样东西：</p>
+      <ul>
+        <li><strong>世界状态</strong>：一组键值，例如 <code>HasWeapon=true</code>、<code>EnemyVisible=false</code>、<code>Ammo=0</code>。</li>
+        <li><strong>目标</strong>：希望世界变成什么样，例如 <code>EnemyDead=true</code>。</li>
+        <li><strong>动作库</strong>：每个动作有前提（要已握枪）、效果（开火后敌人死亡或弹药-1）、以及代价（距离、时间、危险度）。</li>
+      </ul>
+      <p>运行时，规划器（类似在图上寻路）在动作空间里搜索：从当前世界出发，串起一串动作，使最终世界满足目标，并尽量让总代价低。搜到后 AI 按队列执行；世界变了（敌人死了、子弹打空）可以重新规划。</p>
+      <p>这在战术游戏、需要「自己找掩体再装填再开枪」的 AI 上很有名。代价是：动作与状态要设计准，调试「为什么排出这串计划」需要工具，算力也比 FSM/BT 直观评估更重。本项目骷髅只是看见就追、靠近就打，目标单一，用 GOAP 会白白增加系统复杂度。</p>
+    </article>
+
+    <article id="g-navmesh" class="card">
+      <h3>NavMesh（导航网格）</h3>
+      <p>若角色要在复杂房间里从 A 走到 B，并自动绕桌子、走门洞，手写「朝目标直行 + 撞墙再滑」会很快不够用。NavMesh 的做法是：</p>
+      <ol>
+        <li><strong>烘焙（Bake）</strong>：在编辑器里根据场景几何生成一层「可走表面」——通常是许多三角形拼成的网格，只覆盖角色站得住的地方（坡度太陡、缝太窄的会排除）。</li>
+        <li><strong>运行时查询</strong>：给 <code>NavMeshAgent</code>（或等价组件）一个终点，引擎在网格上跑寻路算法（常见如 A* 变体），得到一串路径点。</li>
+        <li>角色沿路径点移动；障碍静态时路径稳定，动态障碍可能需要避让或重算。</li>
+      </ol>
+      <p>它在 3D 或顶视角 2D 非常常见。侧视平台动作则别扭：角色还要处理「跳上更高平台、落下深坑、单向平台」，这些往往不在默认 NavMesh 语义里。要支持跳跃 AI，得额外加 Off Mesh Link（告诉系统「这里可以跳到那」）或自研平台导航。本项目地面近战怪在通道里追玩家，用距离检测 + 简单移动就够，上 NavMesh 投入大、收益小。</p>
+    </article>
+
+    <article id="g-ecs" class="card">
+      <h3>ECS / DOTS（实体组件系统）</h3>
+      <p>传统 Unity 写法是 GameObject + 一堆 MonoBehaviour：每个物体自带 Transform，脚本里 <code>Update</code> 各管各的，数据散落在堆上的对象里。实体一多（成千上万子弹、士兵），CPU 缓存不友好，虚调用和临时分配也容易卡。</p>
+      <p>ECS 换一种组织方式：</p>
+      <ul>
+        <li><strong>Entity</strong>：可以想成一个 ID，本身几乎没有逻辑。</li>
+        <li><strong>Component</strong>：纯数据，如 <code>Position</code>、<code>Health</code>、<code>Velocity</code>。同类组件尽量挨在一起存（「列式」），方便一次性处理。</li>
+        <li><strong>System</strong>：函数式逻辑，例如「所有带 Position+Velocity 的实体：position += velocity * dt」。系统按数据匹配批量跑，而不是对每个 GameObject 调虚方法。</li>
+      </ul>
+      <p>Unity 的 DOTS（Data-Oriented Technology Stack）还常配合 Jobs（多核任务）和 Burst（把子集 C# 编译成高效机器码）。写代码时你要想「数据怎么流过系统」，调试和创作流程也与经典 Hierarchy 不同。</p>
+      <p>适用面：同屏大量同类单位、要抠性能或确定性模拟。不适用当银弹：本项目实体少、逻辑异质（UI、技能树、玩家手感），用经典组件更快迭代。先把玩法管道做对，再谈是否迁移 ECS。</p>
+    </article>
+
+    <article id="g-timeline" class="card">
+      <h3>Timeline（时间轴）</h3>
+      <p>Timeline 是 Unity 的<strong>非线性编排工具</strong>：一条时间轴上多条轨道，轨道上放片段。到了某一秒，引擎按片段做约定好的事。</p>
+      <p>常见轨道用途：</p>
+      <ul>
+        <li>Animation：让角色在 0.0s 播起手、0.4s 播挥砍；</li>
+        <li>Activation：某一段时间激活刀光物体或特效；</li>
+        <li>Audio：同步音效；</li>
+        <li>Control / Signal：在某一刻发事件，让 gameplay 脚本「现在可以结算伤害了」或「允许取消后摇」。</li>
+      </ul>
+      <p>播放靠 <code>PlayableDirector</code>。很适合过场动画、有固定演出时长的大招、镜头动画与特效对齐。不太适合「按住方向立刻冲刺、物理碰撞随时打断」这种高度即时、与输入/物理缠在一起的技能——那些用状态机 + 代码每帧更新更可控。本项目冲刺与碎片是即时技能，所以核心不用 Timeline；以后做带长前摇的终极技，可以局部引入。</p>
+    </article>
+
+    <article id="g-so" class="card">
+      <h3>ScriptableObject（可脚本化配置资产）</h3>
+      <p>MonoBehaviour 挂在场景物体上，存的是「这个实例的状态」。ScriptableObject 则是一种<strong>可保存在 Project 窗口里的数据资产</strong>：右键 Create 出来，不依赖某个场景是否打开。</p>
+      <p>典型用法：</p>
+      <ul>
+        <li>策划/你在 Inspector 里填技能名、图标、冷却、伤害缩放；</li>
+        <li>多个场景、多个预制体可以引用<strong>同一份</strong> SO，改一处，引用处一起变；</li>
+        <li>代码里读字段决定行为，而不是把魔数写死在脚本里。</li>
+      </ul>
+      <p>和 JSON 配置相比，SO 与 Unity 序列化、引用（拖 Sprite、拖引用）集成更好，但不适合当复杂存档格式（玩家进度仍常用自己的存档系统）。本项目的 <code>Skill_DataSO</code>、<code>Stat_SetupSO</code> 都是这种思路：<strong>数据与场景实例分离</strong>，技能树节点只握着「用哪份配置」。</p>
+    </article>
+
+    <div class="note">
+      名词读完后，再往下看各模块时，「其他做法」可以和这里对照。哪个词还不熟，就点侧栏回到对应小节再读一遍。
+    </div>
+  </section>
+
+  <!-- ========== 1 ========== -->
+  <section id="m1" class="decision">
+    <h2>1. 有限状态机</h2>
+    <span class="tech">经典 FSM</span>
+    <span class="tech">StateMachine + EntityState</span>
+
+    <h3>要解决什么问题</h3>
+    <p>角色同一时刻通常只做一种事（站、跑、跳、攻、死）。难点往往不在「每帧怎么算速度」，而在<strong>换动作时要先收尾、再开场</strong>：如果不强制这样做，各种布尔标记和动画很容易互相干扰。</p>
+
+    <h3>本项目怎么做</h3>
+    <p>每种行为一个状态类，统一有 Enter / Update / Exit；由 <code>StateMachine</code> 负责切换。玩家和敌人共用这套骨架。调试时看「当前是哪个状态」就行。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. 行为树（Behavior Tree）</h4>
+      <p class="how">
+        <strong>怎么做：</strong>把 AI/逻辑画成一棵树。根节点往下是「选择器 / 顺序器 / 装饰器」等控制节点，叶子是具体动作（移动到目标、播放攻击、等待）。<br>
+        每帧（或每个 AI Tick）从根开始评估：选择器会按优先级试子节点，谁成功就用谁；顺序器则要求子节点依次成功。黑板（Blackboard）里存「当前敌人、血量、距离」等共享数据，叶子读写黑板。<br>
+        典型路径：根 →「是否看到玩家？」→ 是则走「战斗子树」（靠近→攻击），否则走「巡逻子树」。
+      </p>
+      <p class="why-not"><strong>为何本项目玩家/基础框架不用：</strong>玩家主要由输入驱动，不是「每帧从一堆选项里挑任务」。行为树强项是复杂可选行为；这里互斥状态少，FSM 的 Enter/Exit 更贴「换姿势要清理」的问题。敌人若以后行为极多，可以只给 Boss 换 BT，不必全局替换。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. 只用 Animator Controller（动画状态机）</h4>
+      <p class="how">
+        <strong>怎么做：</strong>在 Unity 里用 Animator 窗口搭状态图：每个状态绑一个 AnimationClip，Transition 上写条件（如 <code>Speed &gt; 0.1</code>、<code>IsGrounded</code>）。代码里 <code>anim.SetBool/SetTrigger</code> 改参数，引擎负责过渡与播动画。也可在 Clip 上挂 Animation Event 回调脚本。<br>
+        有人会把「攻击能不能取消、要不要扣血」也写成 Animator 参数和 Transition，让动画图变成逻辑图。
+      </p>
+      <p class="why-not"><strong>为何不够当游戏逻辑核心：</strong>动画状态 ≠ 逻辑状态。例如逻辑已落地，落地动画还没播完；或逻辑在墙滑，动画用分层混合。把冷却、伤害、输入全塞进 Animator，条件会散落在图里，难搜索、难单测。本项目 Animator 只负责「播哪段动画」，逻辑状态机另管。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. ECS（Entity Component System，Unity 里常提 DOTS）</h4>
+      <p class="how">
+        <strong>怎么做：</strong>实体只是一个 ID；数据按组件类型连续存放（所有「位置」一列、所有「生命」一列）。系统（System）写：遍历所有带 Position+Velocity 的实体，批量更新。尽量少在热循环里 new 对象、少虚函数，方便多核。<br>
+        写逻辑时想的是「数据流过哪些系统」，而不是「这个 GameObject 上挂了哪些 MonoBehaviour」。
+      </p>
+      <p class="why-not"><strong>为什么现在不用：</strong>本项目场景里单位不多，种类却很杂（玩家、怪、UI、技能、宝箱），主要改的是玩法对不对、手感好不好。ECS 更适合「同屏成千上万个差不多的单位」。现在就上 DOTS，要重写很多显示和编辑方式，对课设/原型来说太贵。先把状态机和战斗流程理顺，比先追求那种数据排法更划算。</p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>现在的麻烦。</strong>每加一种行为，就要新建一个状态类，还要想清楚：它和哪些状态不能同时存在，进入时要初始化什么，离开时要清理什么。状态一多，脚本文件就多，谁能转到谁也不容易一眼看明白。更麻烦的是「不该发生的切换」——比如角色已经死了，按理不该再冲刺；如果只靠自己在每个地方随手写判断，漏写一处就会出 Bug。状态机只会保证：切换时先调用旧状态的 Exit，再调用新状态的 Enter；它<strong>不会</strong>自动阻止你从 A 切到不该去的 B。</p>
+    <p><strong>什么时候会更痛。</strong>现在十来个状态，靠脑子还能记住。以后若加上受击僵直、对话时不能动、过场动画锁操作，状态之间的关系会复杂很多。那时只靠「大家约定好」就不够了，需要一套能检查的规则。</p>
+    <p><strong>可以怎么改。</strong>第一种：做一张「允许怎么转」的表。表里写清楚：从哪个状态可以转到哪个状态；真正切换前先查表，不允许就打印提示并取消。这样规则集中在一处，加新状态时也会被迫想清楚「谁能进到我」。第二种：把状态机拆成两层——下层管移动（站、走、跳、贴墙滑），上层管战斗（攻击、弹反、受击）。同一层里同时只能有一个状态；上层可以用更高优先级打断下层。这样「边跑边攻击」就不必再做一个叫 RunAttack 的新状态，而是两层各有一个当前状态。分层会多一点调度代码，但以后加功能时，状态总数涨得慢一些。至于虚函数性能，一般现在不用操心；先把逻辑做对、好改，更重要。</p>
+  </section>
+
+  <!-- ========== 2 ========== -->
+  <section id="m2" class="decision">
+    <h2>2. 玩家状态机</h2>
+    <span class="tech">一状态一类</span>
+    <span class="tech">基类统一部分输入</span>
+
+    <h3>要解决什么问题</h3>
+    <p>玩家状态多、手感细节多，但冷却、朝向、动画参数又重复。既要少复制粘贴，又不能变成一个几千行的 Player 上帝类。</p>
+
+    <h3>本项目怎么做</h3>
+    <p>每个动作一个 <code>Player_XxxState</code>；共享引用放在 <code>PlayerState</code>。冲刺等「几乎全局可打断」的检测放在基类 Update，位移仍进 <code>Player_DashState</code>，冷却进 <code>Skill_Dash</code>。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. 单一 Player 巨石脚本</h4>
+      <p class="how">
+        <strong>怎么做：</strong>所有逻辑写在一个 <code>Player.Update</code>：先读输入，再一大串 <code>if (isJumping) … else if (isAttacking) …</code>，用布尔标志表示当前模式。动画、物理、技能全挤在一起。小 Demo 两三个行为时很常见。
+      </p>
+      <p class="why-not"><strong>问题：</strong>标志组合爆炸（又在空中又在攻击又在冲刺），清理顺序靠记忆。本项目状态已十几种，巨石会难以改手感。拆状态类就是逼你把「进入/离开」写清楚。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. 数据驱动状态图（节点资产）</h4>
+      <p class="how">
+        <strong>怎么做：</strong>用编辑器画状态节点和箭头，每个节点配置「可播动画、可响应输入、转到下一状态的条件」。运行时引擎按资产切换，逻辑人少改代码、多改资产。类似 Animator，但节点代表游戏逻辑而非 Clip。一些插件/自研工具专门做这个。
+      </p>
+      <p class="why-not"><strong>为何未上：</strong>状态集合相对稳定，程序员改 C# 比维护图+序列化更快，也少一层「资产与代码不同步」。等策划要天天改连招表、状态上百时，数据驱动才更值得。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. 每个技能也做成一个玩家状态</h4>
+      <p class="how">
+        <strong>怎么做：</strong>放火球进 <code>Player_FireballState</code>，放治疗进 <code>Player_HealState</code>……状态机覆盖所有技能释放过程（前摇、出招、后摇）。
+      </p>
+      <p class="why-not"><strong>为何只对位移类这么做：</strong>冲刺会改重力、速度、碰撞响应，和「身体处于什么运动模式」强绑定，适合状态机。场上残留的碎片/陷阱有自己的寿命与碰撞，做成独立 SkillObject 更干净，否则状态机会被技能数量撑爆。</p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>现在的麻烦。</strong>为了少复制粘贴，冲刺判定写在了 <code>PlayerState.Update</code> 里，几乎所有玩家状态都会跑到。这样很好用，但基类也变成了「所有按键的总入口」。以后若再把弹反、开门、喝药都塞进基类，基类又会变得又长又杂，和当初拆成很多状态类的目的相反。另外，现在多半是「这一帧有没有按下」立刻处理。攻击前摇很短、或游戏掉帧时，容易出现：你明明提前按了攻击，连招却没接上——不一定是伤害算错，而是「按键的时机」和「动画允许接招的那段时间」没对上。</p>
+    <p><strong>输入缓冲是在干什么。</strong>可以先把玩家的意图记下来，例如 Jump、Attack、Dash，放进一个很短的队列里（比如只保留 0.1～0.2 秒）。当前状态每帧再决定：我现在能不能执行 Attack。这样攻击快结束时，仍能吃到你提前按的键；受击不能动时，可以丢掉移动，但弹反窗口里仍可保留弹反。你还要规定谁优先（例如：正在受击时，普通移动无效；弹反窗口里弹反优先于普攻），以及命令多久作废。不然队列里堆太多旧按键，会出现莫名其妙的连段。</p>
+    <p><strong>为什么不继续在基类里加 if。</strong>继续加 if 最快，但基类又会变成一个大杂烩。缓冲的做法是把两件事分开：先「记下按了什么键」，再「当前状态允不允许做」。调试时也好查：到底是没读到键，还是状态拒绝执行。代价是多一层逻辑，要写清楚说明，不然别人会困惑：为什么 Update 里看不到直接冲刺的代码。</p>
+  </section>
+
+  <!-- ========== 3 ========== -->
+  <section id="m3" class="decision">
+    <h2>3. 关卡与摄像机</h2>
+    <span class="tech">Cinemachine</span>
+    <span class="tech">Tilemap</span>
+    <span class="tech">视差脚本</span>
+
+    <h3>要解决什么问题</h3>
+    <p>跟拍稳定、不露关卡外、背景有纵深。这些是基础设施，做不好直接毁手感，但本身通常不是玩法差异点。</p>
+
+    <h3>本项目怎么做</h3>
+    <p>跟拍与阻尼交给 Cinemachine；关卡碰撞与绘制用 Tilemap；背景多层按相机位移比例平移（手写视差）。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. 手写相机跟随</h4>
+      <p class="how">
+        <strong>怎么做：</strong>每帧（常 LateUpdate）把相机位置朝向角色插值：<code>Lerp(当前, 目标, t)</code>，或用 SmoothDamp。再自己写边界钳制、碰到墙时的推挤、Y 轴死区（角色小跳相机不上移）。震屏则在受伤时给 offset 再衰减。
+      </p>
+      <p class="why-not"><strong>为何优先插件：</strong>上述每一项都要调参和修边界情况，Cinemachine 已把死区、阻尼、Collider 推挤做成组件。自写适合教学理解插值；产品向跟拍很少值得从零养一轮 Bug。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. 3D 场景「伪 2D」或视差粒子</h4>
+      <p class="how">
+        <strong>怎么做：</strong>把关卡放进 3D，相机正交或固定角度拍，多层网格在 Z 轴排开，靠透视自然产生视差；或用粒子/体积雾做远景。
+      </p>
+      <p class="why-not"><strong>为何未用：</strong>美术与碰撞是 2D Sprite/Tilemap 管线，上 3D 要换光照、碰撞、排序一整套。简单 2D 层移与当前资源匹配，性能也更可控。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. 不用 Tilemap，纯 Sprite 摆关卡</h4>
+      <p class="how">
+        <strong>怎么做：</strong>每一块地面是一个 Sprite 物体，手摆或预制件拼接，碰撞体逐个加 BoxCollider2D。
+      </p>
+      <p class="why-not"><strong>问题：</strong>大关卡物体数量与缝隙问题多。Tilemap 一次刷格子，可生成合并碰撞，改关更快。</p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>背景偶尔会抖或慢半拍。</strong>相机位置由 Cinemachine 更新，视差脚本若在 <code>FixedUpdate</code> 里读相机位置再推背景，两边更新时机可能对不齐，背景就会相对人物轻微发抖，或好像慢一拍。这通常不是公式写错，而是「读相机的时机」不对。更稳的做法：等相机这一帧的位置定好之后（例如在 <code>LateUpdate</code>，或挂在相机相关回调里）再推背景；也可以做成 Cinemachine 的扩展，和镜头走同一套更新。</p>
+    <p><strong>为什么还要考虑震屏。</strong>跟拍是为了看清角色；短促震屏是为了让打中的感觉更「有力」。现在主要靠特效和数字，镜头几乎不动，重击和轻击的差别会不够明显。可以用 Cinemachine 的 Impulse：受击或暴击时发一次震动，相机上的 Listener 接收后再慢慢停下来。按伤害类型调强弱，并限制叠太多层，不然连续挨打会晕。</p>
+    <p><strong>关卡变大以后。</strong>整张图只有一块巨大的相机边界、或一个超大 Tilemap，改起来、加载都会变慢、变难。可以按房间或区域拆开 Tilemap 和边界，进门时换相机或换边界。这不改变「继续用 Cinemachine 和 Tilemap」的选择，只是把关卡拆成更好改的小块。</p>
+  </section>
+
+  <!-- ========== 4 ========== -->
+  <section id="m4" class="decision">
+    <h2>4. 敌人状态机</h2>
+    <span class="tech">同构 FSM</span>
+    <span class="tech">距离 / 视野检测</span>
+
+    <h3>要解决什么问题</h3>
+    <p>敌人要自主在「闲逛 / 追 / 打 / 硬直」间切换，并和受击、弹反、死亡对齐。</p>
+
+    <h3>本项目怎么做</h3>
+    <p>沿用 FSM；用检测点或距离判断是否进入战斗；攻击动画事件出伤害盒；与玩家共享 Entity/战斗组件。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. NavMesh 寻路</h4>
+      <p class="how">
+        <strong>怎么做：</strong>在场景里标记可走区域，Unity 烘焙生成导航网格（三角形网）。运行时 <code>NavMeshAgent</code> 给定终点，引擎在网格上找路径，绕过障碍，沿路径点移动。常见于 3D 或顶视角，角色「走到门后那个点」。
+      </p>
+      <p class="why-not"><strong>为何 2D 平台怪少用：</strong>侧视关卡还有「平台之间要不要跳、掉下去能不能上来」，NavMesh 默认不管跳跃物理学。要支持平台 AI，往往要额外链路点或特化导航，对「地面近战骷髅」过重。直线追玩家 + 简单边缘检测通常够用。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. GOAP（Goal Oriented Action Planning）</h4>
+      <p class="how">
+        <strong>怎么做：</strong>你定义世界状态（有弹药吗、看见敌人吗）、目标（消灭敌人）和动作（找掩体、射击、装填），每个动作有前提与效果、以及代价。AI 运行时用类似寻路的算法在「动作空间」里搜一条从当前世界到达目标的动作序列，再执行。经典如《幽浮》类战术 AI。
+      </p>
+      <p class="why-not"><strong>为什么不用：</strong>这种规划系统要调试「为什么排出这一串动作」，工具和数据都多。当前敌人目标很简单（靠近就打），几个状态就够，GOAP 对现在来说太重了。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. 行为树做整只怪</h4>
+      <p class="how">
+        见模块 1 对 BT 的说明：每 Tick 从树根评估，战斗/巡逻做成子树，条件节点读距离与血量。
+      </p>
+      <p class="why-not"><strong>对本项目：</strong>骷髅行为少，FSM 更易在代码里跳转阅读。若 Boss 有多阶段、多技能池，再给 Boss 单独挂 BT 或阶段表更合适。</p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>简单追击会出什么怪事。</strong>如果只根据「离玩家多远、看没看见」就进入追击，敌人常常只沿地面左右冲：到了平台尽头还朝玩家走，可能掉崖或卡在台阶边；玩家跳到更高一层时，它也不会决定「要不要跳」，只会在下面来回走。这不是状态机坏了，而是敌人只知道「该追」，却不知道「这条路能不能走到」。</p>
+    <p><strong>把参数放到配置里有什么好处。</strong>仇恨范围、脱战距离、丢目标后等多久、攻击抬手时间，如果写在 ScriptableObject 里，调「这只怪有多黏人」就不用改代码。弹反如果只写在动画事件里，调手感就只能改动画；如果再写成数据（例如攻击开始后第 0.2～0.5 秒可以弹反），调战斗和调动画可以分开进行。</p>
+    <p><strong>很多怪一起打你时。</strong>每个怪各自追同一个玩家，可能同一时间叠在一起砍，画面难读，难度也不好调。不必一上来做很复杂的战术 AI：可以限制同时近身攻击的怪数量（例如最多 2 个，其余在旁边转），或让它们错开一点再进攻。Boss 技能很多时，再单独给 Boss 做阶段表或行为树即可，小怪不必和 Boss 一样复杂。</p>
+  </section>
+
+  <!-- ========== 5 ========== -->
+  <section id="m5" class="decision">
+    <h2>5. 战斗系统</h2>
+    <span class="tech">动画帧 Overlap</span>
+    <span class="tech">AttackData</span>
+    <span class="tech">IDamagable</span>
+
+    <h3>要解决什么问题</h3>
+    <p>一次命中要统一：目标、物理/元素伤、暴击、状态、特效、击退。普攻和技能碎片不能各写一套公式。</p>
+
+    <h3>本项目怎么做</h3>
+    <p>命中帧 Overlap → <code>GetAttackData(scale)</code> 打成 AttackData → <code>IDamagable.TakeDamage</code> + 状态。缩放用 <code>DamageScaleData</code> 区分普攻/技能。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. 持续碰撞 Damager（Trigger 里一直伤）</h4>
+      <p class="how">
+        <strong>怎么做：</strong>武器上挂 Trigger Collider，在 <code>OnTriggerStay2D</code> 里对进入的敌人扣血。为防每帧秒杀，常给每个目标记「上次受伤时间」，间隔内不再伤。火墙、毒圈也常用类似写法。
+      </p>
+      <p class="why-not"><strong>近战挥砍为何少用：</strong>攻击盒何时存在、打几段，跟动画强相关；Stay 方案要自己维护免疫列表，多段攻击易乱。动作游戏更常见「这一帧打开攻击盒，检测一次或短窗口」。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. 射线 / ShapeCast 精确检测</h4>
+      <p class="how">
+        <strong>怎么做：</strong>从角色某点沿朝向 <code>Raycast</code>、<code>CapsuleCast</code>，或对多边形做物理查询，得到命中点与法线。格斗游戏有时用更复杂的盒判断。
+      </p>
+      <p class="why-not"><strong>本项目用圆 Overlay 的原因：</strong>实现和调参简单，对砍击手感够用。以后要更严的刀光形状，再换成按帧切换的盒或多边形即可，结算管道（AttackData）不用推翻。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. 伤害事件总线 / 中间件</h4>
+      <p class="how">
+        <strong>怎么做：</strong>攻击方不直接调 <code>TakeDamage</code>，而是 <code>eventBus.Publish(DamageEvent)</code>；生命、UI 飘字、成就系统分别订阅。联机游戏还可能把事件送进预测/回滚层。
+      </p>
+      <p class="why-not"><strong>为何现在直接调用：</strong>单机、监听方少，直接调用链路短、好断点。监听变多（音效、任务、统计）时，再引入事件能减少 Combat 里硬编码依赖。</p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>AttackData 继承 MonoBehaviour 为什么别扭。</strong>它在代码里是用 <code>new AttackData(...)</code> 造出来的数据包，从来不会挂到场景物体上，却继承了「组件」那一套基类。别人读代码时容易以为要用 <code>AddComponent</code>。改成普通的 class（或 struct）更合适，意思就是「一包伤害数据」，也不会有人给它写没用的 <code>Awake</code>。</p>
+    <p><strong>攻击范围形状以后怎么升级。</strong>现在用圆做检测，调起来快；但刀光是弯的、刺击是细长的时候，圆可能打到不该打的，或够不到该够的。改的时候不必重写整套结算：照样生成 AttackData，只把「怎么找出碰到的碰撞体」改成按动画帧切换的方盒、胶囊，或更贴合贴图的形状。可以先给每把武器配检测点，再进阶到「某一动画的某几帧用特殊形状」。</p>
+    <p><strong>特效和事件。</strong>如果暴击时播错了特效，说明表现和战斗结算写在同一处，不好单独测。可以在「确认打中并算完伤害」之后发一个事件，飘字、音效、震屏去听这个事件；Combat 只负责「有没有打中、数字是多少」。这样加新反馈不用改伤害公式，Combat 脚本也不会越写越长。</p>
+  </section>
+
+  <!-- ========== 6 ========== -->
+  <section id="m6" class="decision">
+    <h2>6. 属性系统</h2>
+    <span class="tech">Stat + Modifier</span>
+    <span class="tech">公式衍生</span>
+
+    <h3>要解决什么问题</h3>
+    <p>数值会被装备/Buff/技能改变，且要能按来源撤销；主属性到物伤/抗性的规则要集中。</p>
+
+    <h3>本项目怎么做</h3>
+    <p><code>Stat</code> = 基础值 + Modifier 列表；Buff 用 source 移除。力量等在 <code>GetPhysicalDamage</code> 等公式里现场换算，不每次数值同步改派生字段。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. 直接改 public float</h4>
+      <p class="how">
+        <strong>怎么做：</strong><code>player.damage = 10</code>；捡到 Buff 就 <code>damage += 5</code>，结束再 <code>-= 5</code>。或用协程改临时值。
+      </p>
+      <p class="why-not"><strong>问题：</strong>多个 Buff 叠加时很难正确还原；百分比加成（+10% 伤）不好插；也难以在 UI 列出「当前有哪些加成」。Stat+Modifier 就是为「可追溯叠加」准备的。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. 完整 RPG 属性框架 / 插件</h4>
+      <p class="how">
+        <strong>怎么做：</strong>引入第三方或自研大框架：属性定义表、成长曲线、装备槽、套装、词条生成、存档序列化等，用统一 API 查询最终值。
+      </p>
+      <p class="why-not"><strong>为何未引入：</strong>概念面大，容易只用到皮毛却背负整套约定。当前自研 Stat 与战斗管道贴合，够用且好读。真要做深度刷装再评估框架。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. 派生属性也全部做成自动 Modifier 图</h4>
+      <p class="how">
+        <strong>怎么做：</strong>力量变化时，系统自动往「物理伤害 Stat」里塞一条隐藏 Modifier；智力变化自动改元素伤与抗性。属性之间形成依赖图，一处变、多处刷新。
+      </p>
+      <p class="why-not"><strong>本项目用公式现场算：</strong>依赖图要处理刷新顺序与循环依赖，调试更难。体量小时，「读伤害时把力量加进去」更直观，策划也好理解「力量不直接改 damage 字段」。 </p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>单位不统一会出什么错。</strong>有的地方 15 表示 15%，有的抗性返回 0～0.75 这种小数，闪避又用 0～100 去和随机数比。在 Inspector 里很容易配错。表现出来常常是「好像没有抗性」或「总能闪避」，很难一眼看出是配错了单位。光写文档不够，更好的是让类型自己说清楚：例如专门表示「百分之几」的类型，或在面板上直接显示「15%」，从填写时就少犯错。</p>
+    <p><strong>为什么还要区分「加多少」和「乘多少」。 </strong>现在加成多半丢进同一个列表，最后怎么合成全看 GetValue 怎么写。常见玩法需要：先把所有「+10 伤害」加起来，再乘「+20% 伤害」，并规定百分比之间是相加还是相乘。如果不分清楚，装备和 Buff 一多，伤害可能涨到失控，也很难单独做「减少百分比伤害」这类效果。改进时给每条加成标上类型（固定加值 / 百分比），公式写死计算顺序，估伤害才稳。</p>
+    <p><strong>UI 为什么不该每帧狂读属性。</strong>血条、面板如果每帧都 GetValue，小项目问题不大；属性多、界面复杂时，就会做很多没用的重复计算。可以在属性增删加成时发一个「变了」的通知，UI 收到再刷新。这样逻辑和界面分开，也方便做「力量提升了」的提示。</p>
+  </section>
+
+  <!-- ========== 7 ========== -->
+  <section id="m7" class="decision">
+    <h2>7. 技能树与 UI</h2>
+    <span class="tech">UGUI 静态树</span>
+    <span class="tech">SO 解锁写运行时</span>
+
+    <h3>要解决什么问题</h3>
+    <p>展示、前置/互斥/扣点、把选择应用到玩法——三者要能分开改。</p>
+
+    <h3>本项目怎么做</h3>
+    <p>场景里摆节点；SO 描述消耗与 UpgradeData；解锁只调用 <code>SetSkillUpgrade</code>，不直接改位移数值。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. 运行时根据数据生成整棵树</h4>
+      <p class="how">
+        <strong>怎么做：</strong>用 JSON/SO 描述所有节点 ID、坐标、边；打开技能树时 Instantiate 按钮预制体，按坐标排版，再根据边生成连线 UI。换职业只换数据表。
+      </p>
+      <p class="why-not"><strong>为何静态摆：</strong>节点不多时，Scene 里拖图标、调连线更快，美术能直接对齐。动态生成要写布局与锚点代码。树极大或多套模板时，再数据生成更划算。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. 第三方节点图编辑器</h4>
+      <p class="how">
+        <strong>怎么做：</strong>用 GraphView 或插件在编辑器里画节点图，保存为资产；运行时解读。常用于对话、任务、技能树一体化。
+      </p>
+      <p class="why-not"><strong>为何自研小组件：</strong>需求主要是「父子相对定位 + 解锁变色」，自研 ConnectHandler 依赖少、问题域小。上完整图编辑器要学 API 与调试序列化，回报暂时不高。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. 点击 UI 直接改 Player 字段</h4>
+      <p class="how">
+        <strong>怎么做：</strong><code>OnClick</code> 里 <code>player.dashCooldown = 1</code>、<code>player.canSpawnShard = true</code>，UI 与玩法写在一起。
+      </p>
+      <p class="why-not"><strong>问题：</strong>退点、互斥、存档都要到处找字段；UI 测试会启动半个游戏。本项目已出现过「SO 写错 skillType / upgradeType，运行时被盖成 None」——更说明必须有单一写入点（SetSkillUpgrade），且 UI 只负责触发写入。</p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>退点不完整时会怎样。</strong>界面上退点可以把图标变回去、技能点加回来，但玩家身上 <code>Skill_Base</code> 的升级类型、冷却、伤害缩放，不一定回到「退完之后该有的样子」。例如：先点基础碎片，再点 Irritated（覆盖成追踪分支和新冷却），再只退掉 Irritated——技能组件可能还停在追踪分支，或变成 None 导致完全不能放。原因是：解锁是「整份盖上去」，退点却没有一套对称的规则去「按还剩下的已解锁节点，重新应用一次」或「恢复到上一级的配置」。</p>
+    <p><strong>更稳的做法。</strong>规定：当前真正生效的升级 = 在已解锁的节点里，按技能类型找出互斥组里剩下的那个，再把它的 UpgradeData 写进技能；如果这一类一个都没解锁，就回到默认（例如冲刺回到 Dash，或 None）。退点和读档都走同一个函数，界面和战斗就不会各说各话。</p>
+    <p><strong>存档和大树。</strong>现在解锁进度多半记在场景物体的 <code>isUnlocked</code> 上，换场景或重开游戏可能丢，也不方便做多个存档。更好是存一份「已解锁节点 ID 列表」和技能点；进游戏时先清空运行时技能，再按列表重新解锁一遍。树特别大时，节点位置和连线也可以做成单独的数据资产，场景只放界面壳子，否则改树要在巨大的 Hierarchy 里翻，也不好合并。</p>
+  </section>
+
+  <!-- ========== 8 ========== -->
+  <section id="m8" class="decision">
+    <h2>8. 核心技能系统</h2>
+    <span class="tech">Skill 组件</span>
+    <span class="tech">upgradeType 策略</span>
+    <span class="tech">SkillObject</span>
+
+    <h3>要解决什么问题</h3>
+    <p>区分：规则（CD/分支）、身体运动（冲刺）、场上实体（碎片）。技能树还要求「一路互斥」，不是所有升级开关一起开。</p>
+
+    <h3>本项目怎么做</h3>
+    <p>Skill 管规则与分支；Dash 位移在状态机，Enter/Exit 触发附加效果；Shard 生成 Prefab，爆炸走 AttackData。解锁整份替换 upgradeType + cooldown + damageScale。</p>
+
+    <h3>其他做法具体是什么</h3>
+
+    <div class="alt">
+      <h4>A. 每个升级一个子类 / 策略类型</h4>
+      <p class="how">
+        <strong>怎么做：</strong><code>Skill_Shard</code> 抽象，子类 <code>Shard_Move</code>、<code>Shard_Teleport</code>……解锁时 Destroy 旧组件 Add 新组件，或持有一个 <code>IShardBehavior</code> 引用，调用 <code>behavior.Use()</code>。行为树式技能也可每个叶子一个类。
+      </p>
+      <p class="why-not"><strong>当前用枚举分支的原因：</strong>互斥树同一时刻只活一个分支，枚举能直接表达「当前是哪一路」，类数量少。分支继续膨胀时，再抽 <code>IShardBehavior</code> 更合适——那是演进，不是否定现在。</p>
+    </div>
+
+    <div class="alt">
+      <h4>B. Timeline / 可视化技能编辑器</h4>
+      <p class="how">
+        <strong>怎么做：</strong>在 Timeline 上铺轨道：某时刻播动画、某时刻激活碰撞、某时刻生成特效、某时刻允许取消。放出大招时 PlayableDirector 播放。适合有演出时长的技能。
+      </p>
+      <p class="why-not"><strong>即时技能为何用代码：</strong>冲刺、抛碎片要跟输入和物理帧紧耦合，Timeline 更偏「播一段表演」。大招演出可以以后局部用 Timeline，不必一切技能都上时间轴。</p>
+    </div>
+
+    <div class="alt">
+      <h4>C. 生成物也做成完整 Entity + FSM</h4>
+      <p class="how">
+        <strong>怎么做：</strong>碎片像敌人一样有 Idle/Chase/Explode 状态、属性、动画。Time Echo 克隆体甚至复用 Player 状态机，只是输入改由 AI 提供。
+      </p>
+      <p class="why-not"><strong>短命物体：</strong>存在两秒就炸的碎片，上全套 FSM 过重。Object 基类做检测与伤害足够。Clone 要「像人一样连招」时，再升级成实体/FSM 才有意义——这也解释了 CreateClone 仍是 WIP：产品形态还没定到值得那套成本。</p>
+    </div>
+
+    <h3>现在有什么问题，以后可以怎么改</h3>
+    <p><strong>Skill_Shard 为什么会越来越长。</strong>每加一种升级，就在 <code>TryUseSkill</code> 里多一段 if，再配一个 Handle 函数；传送还要记血量，多重释放还要协程回充能。同一个脚本里既要决定走哪条分支，又要管预制体、计时，读代码时很难只盯着「传送」这一条线。分支再多，改一处容易牵连别的，也更容易合代码时冲突。可以改成：每种升级一个小脚本（或一份行为配置），<code>Skill_Shard</code> 只负责冷却、当前用哪套行为、以及怎么生成碎片；解锁时换掉当前行为。类会多一点，但可以单独测「传送对不对」。</p>
+    <p><strong>多重释放和普通冷却不是一回事。</strong>普通分支是：放一次，进入冷却。多重释放是：扣一层充能，充能按时间慢慢回，不一定走同一套 <code>SetSkillOnCooldown</code>。玩家会问：我到底是在等技能冷却，还是在等弹药？如果界面还是只画一个转圈冷却，显示就和真实规则对不上。要先定产品规则（充能用点数显示？要不要再加一段公共冷却？），再让 <code>CanUseSkill</code> 和界面读同一套数据，避免代码一套说法、界面另一套说法。</p>
+    <p><strong>冲刺生成碎片时，伤害缩放从哪来。</strong><code>CreateRawShard</code> 用的是碎片技能组件上存的 <code>damageScaleData</code>。如果玩家只点了冲刺树上的「冲刺留碎片」，从没点过时间碎片树，这份缩放可能还是默认或空的，爆炸伤害就会偏弱或异常。可以让冲刺升级自己带一份缩放，生成时优先用它；或者规定：这类冲刺升级必须先解锁基础时间碎片，并在解锁检查里强制。这是配置依赖问题，不是圆形检测写错。</p>
+    <p><strong>Time Echo 还没做完会怎样。</strong><code>CreateClone</code> 还只是占位，Manager 对 TimeEcho 会返回空。如果技能树上 Echo 相关节点已经能点，就会出现：界面显示解锁了，场景里却什么都没有。补齐之前，要么先藏掉/锁住这些节点，要么先做一个最简单的克隆（例如站着吸引仇恨就行）；要做成会攻击的分身，再做成带 AI 或状态机的完整单位——那是下一步更大的工作，需要单独安排，而不是继续在冲刺里打 Log。</p>
+  </section>
+
+  <!-- ========== cross ========== -->
+  <section id="cross">
+    <h2>整体架构上的取舍</h2>
+
+    <div class="alt">
+      <h4>为什么整体是组件 + FSM，不是一上来 ECS？</h4>
+      <p class="how">
+        ECS 见模块 1：实体 ID + 列式组件 + 系统批处理。Unity DOTS 还涉及 Jobs、Burst、特殊创作流程。
+      </p>
+      <p class="why-not">本项目主要改的是各种不同逻辑和手感，单位数量不大。先把职责分清楚（界面 / 技能 / 状态 / 战斗结算），比先优化内存排法更重要。真要同屏大量单位，或要做严格联机同步，再迁到 ECS 也不迟——那等于重写一大层，不是小改。</p>
+    </div>
+
+    <div class="card">
+      <h4>为什么技能树、运行时技能、玩家状态机要拆开？</h4>
+      <p>三块东西改起来的原因不一样：技能树界面常为了好看、好点；技能常为了改数值和分支；状态机常为了改手感。拆开之后，改一块不容易误伤另一块——改连线不该搞坏爆炸伤害，改冲刺手感不该去动技能配置表。</p>
+    </div>
+
+    <div class="card">
+      <h4>从「现在能玩」做到「能长期玩、能给别人玩」时，建议先想什么？</h4>
+      <p>先问：进度会不会丢？退点会不会把技能改乱？（技能树存档、按列表重新解锁）——这决定你能不能连续玩下去。再问：数值单位会不会配错？（属性怎么加、Inspector 好不好填）——这决定会不会暗中坏平衡。然后才是手感（按键缓冲、震屏、攻击盒形状）和内容变多时的结构（碎片分支拆开、Boss AI、Time Echo）。最后才考虑 ECS 这类为了性能大改架构的事。顺序反了，容易在内容还不稳时，先付一大笔改架构的时间。</p>
+    </div>
+
+    <div class="card">
+      <h4>怎样知道自己真的懂了？</h4>
+      <p>试着讲清楚：行为树一帧在干什么；为什么平台跳跃怪不太适合直接用 NavMesh；有了 AttackData 之后，改燃烧伤害要动哪里；如果把冲刺冷却只写在 DashState 里，技能树改冷却为什么会失灵；退掉高级碎片节点后，运行时的 upgradeType 应该回到什么。能讲清「为什么」，而不是背「所以我们没用某某技术」，才算理解。</p>
+    </div>
+  </section>
+
+  <p class="footer">理解向 · 设计决策（含其他技术如何工作）· 实现见模块 1–8</p>
+</main>
+</body>
+</html>

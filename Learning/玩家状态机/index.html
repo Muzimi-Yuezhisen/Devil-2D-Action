@@ -173,7 +173,7 @@ HP ≤ 0 → EntityDeath → deadState（禁用输入、关闭物理）</div>
       <tr><td>PlayerState(player, stateMachine, animBoolName)</td><td>各具体状态 new 时</td><td>保存 player、input、skills；从 player 取 anim、rb、stats</td></tr>
       <tr><td>Update()</td><td>每帧 stateMachine.UpdateActiveState</td><td>base.Update()（减 stateTimer、UpdateAnimationParameters）；若 Dash 键且 CanDash() → SetSkillOnCooldown + ChangeState(dashState)</td></tr>
       <tr><td>UpdateAnimationParameters()</td><td>base.Update 内每帧</td><td>anim.SetFloat("yVelocity", rb.linearVelocity.y) 驱动 JumpFall 混合树</td></tr>
-      <tr><td>CanDash()</td><td>Update 内 Dash 检测前</td><td>skills.dash.CanUseSkill()；非 wallDetected；当前状态不是 dashState；全满足才 true</td></tr>
+      <tr><td>CanDash()</td><td>Update 内 Dash 检测前</td><td>dash.CanUseSkill()（含 upgradeType≠None 与 CD）；非 wallDetected；当前不是 dashState</td></tr>
     </table>
   </section>
 
@@ -316,9 +316,9 @@ HP ≤ 0 → EntityDeath → deadState（禁用输入、关闭物理）</div>
     <table>
       <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
       <tr><td>Player_DashState(...)</td><td>Player.Awake</td><td>base(..., "dash")</td></tr>
-      <tr><td>Enter()</td><td>PlayerState 检测到 Dash</td><td>base.Enter()；算 dashDir；stateTimer = dashDuration；gravityScale = 0</td></tr>
-      <tr><td>Update()</td><td>每帧</td><td>base.Update()（Dash 在 dash 内被 CanDash 拦住）；CancelDashIfNeeded()；SetVelocity(dashSpeed × dashDir, 0)；timer&lt;0 → 接地 idle / 空中 fall</td></tr>
-      <tr><td>Exit()</td><td>切出 dash</td><td>base.Exit()；速度清零；恢复 gravityScale</td></tr>
+      <tr><td>Enter()</td><td>PlayerState 检测到 Dash</td><td>base.Enter()；<code>skillManager.dash.OnStartEffect()</code>；残影；算 dashDir；stateTimer=dashDuration；gravityScale=0</td></tr>
+      <tr><td>Update()</td><td>每帧</td><td>base.Update()；CancelDashIfNeeded()；SetVelocity(dashSpeed×dashDir,0)；timer&lt;0 → idle/fall</td></tr>
+      <tr><td>Exit()</td><td>切出 dash</td><td>base.Exit()；<code>skillManager.dash.OnEndEffect()</code>；速度清零；恢复 gravityScale</td></tr>
       <tr><td>CancelDashIfNeeded()</td><td>Update 内每帧</td><td>撞墙时：接地 → idleState，空中 → wallSlideState</td></tr>
     </table>
   </section>

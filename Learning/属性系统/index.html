@@ -61,7 +61,9 @@
     </table>
     <div class="flow">Stat_SetupSO（ScriptableObject 配置初始 base 值）
   → Entity_Stats.ApplyDefaultStatSetup() 写入各 Stat.SetBaseValue()
-  → 战斗中 Entity_Combat 调用 GetPhysicalDamage / GetElementalDamage 等
+  → 战斗中 Entity_Combat / 技能生成物 调用 GetAttackData(DamageScaleData)
+       → 内部 GetPhysicalDamage / GetElementalDamage（带 scale）
+       → 组装 ElementalEffectData 供状态效果使用
   → Entity_Health 调用 GetArmorMitigation / GetEvasion / GetMaxHealth
   → Object_Buff 碰撞后 AddModifier(source=buffName) → 等待 duration → RemoveModifier → Destroy</div>
     <div class="note">
@@ -81,6 +83,13 @@
       <p><code>GetValue() = baseValue + Σ modifier.value</code>（lazy 缓存，Modifier 变动后下次 GetValue 重算）</p>
     </div>
     <div class="card">
+      <h3>GetAttackData(DamageScaleData scaleData)</h3>
+      <div class="flow">return new AttackData(this, scaleData)
+→ physical = GetPhysicalDamage(out isCrit, scaleData.physical)
+→ elemental = GetElementalDamage(out element, scaleData.elemental)
+→ effectData = new ElementalEffectData(this, scaleData)</div>
+      <p>普攻传入 <code>Entity_Combat.basicAttackScale</code>；技能碎片传入解锁后的 <code>Skill_Base.damageScaleData</code>。</p>
+
       <h3>GetPhysicalDamage(out isCrit, scaleFactor=1)</h3>
       <div class="flow">totalBaseDamage = damage + strength
 critChance       = critChance + agility × 0.3
@@ -337,7 +346,14 @@ GetMaxHealth()      = maxHealth + vitality × 5</div>
           4. <code>isCrit = Random.Range(0, 100) &lt; critChance</code><br>
           5. <code>finalDamage = isCrit ? totalBaseDamage × critPower : totalBaseDamage</code><br>
           6. <code>return finalDamage × scaleFactor</code><br>
-          Entity_Combat 默认 scaleFactor=1；元素侧单独用 0.6 缩放。
+          scaleFactor 来自 <code>DamageScaleData.physical</code>（经 GetAttackData / AttackData）；普攻常见为 1。
+        </td>
+      </tr>
+      <tr>
+        <td>GetAttackData</td>
+        <td>DamageScaleData → AttackData</td>
+        <td>
+          <code>return new AttackData(this, scaleData)</code>：组装物理、元素、暴击、主元素类型与 ElementalEffectData。
         </td>
       </tr>
       <tr>
@@ -350,7 +366,7 @@ GetMaxHealth()      = maxHealth + vitality × 5</div>
           3. 若 <code>highestDamage ≤ 0</code> → <code>element = None</code>，return 0<br>
           4. 非主元素各贡献 <code>该元素值 × 0.5</code>（主元素对应项为 0）<br>
           5. <code>finalDamage = highestDamage + bonusElementalDamage + weakerElementsDamage</code><br>
-          6. <code>return finalDamage × scaleFactor</code>（PerformAttack 中 scaleFactor=0.6）
+          6. <code>return finalDamage × scaleFactor</code>（来自 DamageScaleData.elemental；普攻场景常见 ≈0.4）
         </td>
       </tr>
       <tr>
@@ -523,7 +539,7 @@ GetMaxHealth()      = maxHealth + vitality × 5</div>
     </div>
     <div class="card">
       <h4>与战斗模块的衔接</h4>
-      <p><code>Entity_Combat.PerformAttack</code> 调用攻击方 <code>GetPhysicalDamage(out isCrit)</code> 与 <code>GetElementalDamage(out element, 0.6f)</code>；<code>Entity_Health.TakeDamage</code> 用防守方 <code>GetArmorMitigation(攻击方.GetArmorReduction())</code>、<code>GetElementalResistance(element)</code>、<code>GetEvasion()</code>。详见<a href="../战斗系统/index.html">模块 5 战斗系统</a>。</p>
+      <p><code>Entity_Combat.PerformAttack</code> 调用 <code>GetAttackData(basicAttackScale)</code>；技能生成物同样用 <code>GetAttackData(damageScaleData)</code>。防守方仍用 <code>GetArmorMitigation</code> / <code>GetElementalResistance</code> / <code>GetEvasion</code>。详见<a href="../战斗系统/index.html">模块 5</a>、<a href="../核心技能系统/index.html">模块 8</a>。</p>
     </div>
   </section>
 

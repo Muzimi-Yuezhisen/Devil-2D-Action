@@ -10,16 +10,14 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ecaa68a369f6cfc438a255cb384b92c6, type: 3}
-  m_Name: Skill data - Quick dash
+  m_Name: Skill data - Mirror shard
   m_EditorClassIdentifier: 
-  cost: 0
-  unlockedByDefault: 1
-  skillType: 0
+  cost: 3
+  unlockedByDefault: 0
+  skillType: 2
   upgradeData:
-    upgradeType: 1
-    cooldown: 3
-  displayName: Quick dash
-  description: 'Dash to avoid attacks.
-
-    You cannot take damage while dashing.'
-  icon: {fileID: 900771226, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}
+    upgradeType: 8
+    cooldown: 4
+  displayName: Mirror shard
+  description: You can create up to 3 shards.
+  icon: {fileID: -947979763, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

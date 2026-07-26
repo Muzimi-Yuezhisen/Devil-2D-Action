@@ -39,6 +39,11 @@ public class UI_TreeNode : MonoBehaviour , IPointerEnterHandler , IPointerExitHa
         SetIconColor(defaultIconColor);
     }
 
+    private void Start()
+    {
+        if (skillData.unlockedByDefault) Unlock();
+    }
+
     //取消技能的选择
     public void Refund()
     {
@@ -50,7 +55,7 @@ public class UI_TreeNode : MonoBehaviour , IPointerEnterHandler , IPointerExitHa
         connectHandler.UnlockConnectionImage(false);
     }
 
-    //标记解锁、扣点、锁互斥、连线变白；调用 SetSkillUpgrade 改 Player 技能
+    //解锁技能，标记解锁、扣点、锁互斥、连线变白；调用 SetSkillUpgrade 改 Player 技能
     private void Unlock()
     {
         isUnlocked = true;

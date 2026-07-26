@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Git 版本管理 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+
+<nav>
+  <span class="mod-badge">工程工具 · 独立栏目</span>
+  <div class="section">
+    <h2>本页</h2>
+    <a href="#why">为什么学 Git</a>
+    <a href="#concepts">核心概念</a>
+    <a href="#project">本项目现状</a>
+    <a href="#daily">日常工作流</a>
+    <a href="#commands">常用命令速查</a>
+    <a href="#branch">分支基础</a>
+    <a href="#remote">远端与 GitHub</a>
+    <a href="#unity">Unity 专用注意</a>
+    <a href="#resume">简历怎么写</a>
+    <a href="#practice">练习清单</a>
+    <a href="#faq">常见问题</a>
+    <a href="../index.html">← 总导航</a>
+    <a href="../设计决策与面试/index.html">设计决策与面试</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../index.html">← Learning 总导航</a></div>
+
+  <h1>Git 版本管理</h1>
+  <p class="subtitle">工程工具栏目 · 结合本仓库 devil 的实际用法 · 简历可写的「Git 使用经验」从这里练起</p>
+
+  <div class="module-nav">
+    <a href="../index.html">课程模块 1–8</a>
+    <a href="../Git版本管理/index.html" class="current">Git 版本管理</a>
+  </div>
+
+  <section id="why">
+    <h2>为什么简历常写「熟悉 Git」</h2>
+    <div class="card highlight">
+      <p>公司协作几乎都用 Git。面试官想确认你会：</p>
+      <ul>
+        <li>把改动拆成清晰的 <strong>commit</strong>（可回溯、可 Code Review）</li>
+        <li>用 <strong>branch</strong> 做功能开发，不直接在混乱的主线上乱改</li>
+        <li>和远端（GitHub / GitLab）<strong>push / pull</strong>，不丢本地成果</li>
+        <li>知道什么该进仓库、什么不该（Unity 的 Library 等）</li>
+      </ul>
+      <p>本页目标：你能在 <code>devil</code> 项目上独立完成「存盘 → 提交 → 推远端」全流程，并在简历上写得出具体场景。</p>
+    </div>
+  </section>
+
+  <section id="concepts">
+    <h2>核心概念（用项目语言理解）</h2>
+    <table>
+      <tr><th>概念</th><th>是什么</th><th>在本项目里</th></tr>
+      <tr><td>仓库 Repository</td><td>被 Git 跟踪的整个项目文件夹</td><td><code>d:\Unity\Projects\devil</code>，根目录有 <code>.git/</code></td></tr>
+      <tr><td>工作区 Working tree</td><td>你正在改的文件</td><td>Unity / VS 里打开的 Assets、脚本</td></tr>
+      <tr><td>暂存区 Staging</td><td><code>git add</code> 后等待提交的清单</td><td>决定「这一笔 commit 包含哪些文件」</td></tr>
+      <tr><td>提交 Commit</td><td>一次带说明的快照</td><td>例如「接好 SkillObject_Shard Prefab」</td></tr>
+      <tr><td>分支 Branch</td><td>平行的开发线</td><td>默认 <code>main</code>；做大功能时可开 <code>feature/xxx</code></td></tr>
+      <tr><td>远端 Remote</td><td>GitHub 等网上的备份仓库</td><td><code>origin</code>（配置后）</td></tr>
+      <tr><td>.gitignore</td><td>告诉 Git 忽略哪些路径</td><td>已忽略 Library、Temp、Logs 等</td></tr>
+    </table>
+    <div class="flow">改文件（Unity Ctrl+S）
+  → git add（放入暂存区）
+  → git commit（本地历史多一笔）
+  → git push（备份到 GitHub）</div>
+  </section>
+
+  <section id="project">
+    <h2>本项目现状（已初始化）</h2>
+    <div class="card">
+      <ul>
+        <li>已执行 <code>git init</code>，默认分支 <code>main</code></li>
+        <li>已有 <code>.gitignore</code> / <code>.gitattributes</code></li>
+        <li>已有首次提交：基线快照（Assets、Packages、ProjectSettings、Learning 等）</li>
+        <li><strong>尚未必须</strong>配置 GitHub；没有 push 也能在本机用 commit 防丢</li>
+      </ul>
+    </div>
+    <div class="note">
+      <strong>重要：</strong>Git 只保存<strong>已写入磁盘</strong>的文件。Unity 场景必须先 <kbd>Ctrl+S</kbd>，再 <code>git add</code> / <code>commit</code>。未保存的场景崩溃后，Git 也救不回来。
+    </div>
+  </section>
+
+  <section id="daily">
+    <h2>日常工作流（Unity 推荐节奏）</h2>
+    <h3>做完一小块功能时</h3>
+    <div class="flow">1. Unity：Ctrl+S 保存 Scene / Prefab
+2. 终端进入项目根目录
+3. git status          ← 看改了什么
+4. git add .           ← 或只 add 相关路径
+5. git commit -m "…"   ← 写清楚「为什么 / 做了什么」
+6.（可选）git push</div>
+
+    <h3>好的 commit 信息示例</h3>
+    <table>
+      <tr><th>较差</th><th>较好</th></tr>
+      <tr><td>update</td><td>Add SkillObject_Shard explode VFX on hit</td></tr>
+      <tr><td>fix</td><td>Fix UI_TreeNode unlock when skillManager is null</td></tr>
+      <tr><td>今天的</td><td>Wire UI_SkillTree parentNodes for three skill roots</td></tr>
+    </table>
+    <p>中英文均可；关键的是<strong>以后自己能看懂</strong>。简历/面试时可以说：「我用语义化 commit 记录功能点」。</p>
+  </section>
+
+  <section id="commands">
+    <h2>常用命令速查</h2>
+    <p>在 PowerShell / Cursor 终端中，先：</p>
+    <pre><code>cd d:\Unity\Projects\devil</code></pre>
+
+    <h3>查看状态</h3>
+    <table>
+      <tr><th>命令</th><th>作用</th></tr>
+      <tr><td><code>git status</code></td><td>哪些改了、哪些已暂存、当前分支</td></tr>
+      <tr><td><code>git status -sb</code></td><td>短格式状态</td></tr>
+      <tr><td><code>git log --oneline -10</code></td><td>最近 10 条提交</td></tr>
+      <tr><td><code>git diff</code></td><td>工作区相对暂存区的差异</td></tr>
+      <tr><td><code>git diff --staged</code></td><td>已暂存、即将提交的差异</td></tr>
+    </table>
+
+    <h3>保存进度</h3>
+    <table>
+      <tr><th>命令</th><th>作用</th></tr>
+      <tr><td><code>git add .</code></td><td>暂存当前目录下所有改动（受 .gitignore 约束）</td></tr>
+      <tr><td><code>git add Assets/Scripts/UI/</code></td><td>只暂存某一文件夹</td></tr>
+      <tr><td><code>git commit -m "说明"</code></td><td>生成一次本地提交</td></tr>
+    </table>
+
+    <h3>撤销（安全向）</h3>
+    <table>
+      <tr><th>命令</th><th>作用</th><th>注意</th></tr>
+      <tr><td><code>git restore 文件</code></td><td>丢弃工作区未暂存修改</td><td>改动会丢，慎用</td></tr>
+      <tr><td><code>git restore --staged 文件</code></td><td>取消暂存，文件内容保留</td><td>较安全</td></tr>
+      <tr><td><code>git reset --soft HEAD~1</code></td><td>撤销上一次 commit，改动留在暂存区</td><td>未 push 时可用</td></tr>
+    </table>
+    <div class="note danger">
+      入门阶段<strong>避免</strong>：<code>git reset --hard</code>、<code>git push --force</code>。容易不可逆丢掉工作。
+    </div>
+  </section>
+
+  <section id="branch">
+    <h2>分支基础（简历加分点）</h2>
+    <p>大功能不要全堆在 <code>main</code> 上乱改；开分支做完再合并，是团队标配。</p>
+    <div class="flow">git checkout -b feature/skill-shard
+  → 开发、多次 commit
+  → git checkout main
+  → git merge feature/skill-shard
+  →（可选）删除功能分支</div>
+    <table>
+      <tr><th>命令</th><th>作用</th></tr>
+      <tr><td><code>git branch</code></td><td>列出本地分支</td></tr>
+      <tr><td><code>git checkout -b feature/xxx</code></td><td>创建并切换到新分支</td></tr>
+      <tr><td><code>git checkout main</code></td><td>切回主分支</td></tr>
+      <tr><td><code>git merge feature/xxx</code></td><td>把功能分支合进当前分支</td></tr>
+    </table>
+    <div class="card">
+      <h4>练习建议</h4>
+      <p>下次改技能树时：<code>git checkout -b feature/skill-tree-layout</code> → 改完 commit → 切回 <code>main</code> merge。简历可写：「独立使用 feature 分支开发与合并」。</p>
+    </div>
+  </section>
+
+  <section id="remote">
+    <h2>远端与 GitHub（真正的「云备份」）</h2>
+    <ol>
+      <li>注册 GitHub，新建 <strong>Private</strong> 空仓库（不要勾选自动生成 README，避免冲突）</li>
+      <li>本地关联并推送：</li>
+    </ol>
+    <pre><code>git remote add origin https://github.com/你的用户名/仓库名.git
+git push -u origin main</code></pre>
+    <table>
+      <tr><th>命令</th><th>作用</th></tr>
+      <tr><td><code>git remote -v</code></td><td>查看已配置的远端地址</td></tr>
+      <tr><td><code>git push</code></td><td>把本地提交推到远端</td></tr>
+      <tr><td><code>git pull</code></td><td>拉取远端更新并合并到本地</td></tr>
+      <tr><td><code>git clone 地址</code></td><td>另开电脑时完整下载仓库</td></tr>
+    </table>
+    <div class="note">
+      首次 push 可能要登录 GitHub（浏览器 / Personal Access Token）。私有仓库不会公开你的游戏资源。
+    </div>
+  </section>
+
+  <section id="unity">
+    <h2>Unity 项目专用注意</h2>
+    <table>
+      <tr><th>要点</th><th>说明</th></tr>
+      <tr><td>必提交</td><td><code>Assets/</code>、<code>Packages/</code>、<code>ProjectSettings/</code>、以及本仓库的 <code>Learning/</code></td></tr>
+      <tr><td>勿提交</td><td><code>Library/</code>、<code>Temp/</code>、<code>Logs/</code>、<code>UserSettings/</code>（已在 .gitignore）</td></tr>
+      <tr><td>场景 / Prefab</td><td>改完必须存盘，再 commit；否则历史里没有</td></tr>
+      <tr><td>meta 文件</td><td>和资源成对提交，不要只交脚本不交 <code>.meta</code></td></tr>
+      <tr><td>一人项目</td><td>仍建议频繁 commit；崩溃或误删时可 <code>git checkout</code> / 看历史恢复</td></tr>
+    </table>
+  </section>
+
+  <section id="resume">
+    <h2>简历怎么写（可直接改写成你的表述）</h2>
+    <div class="card highlight">
+      <h4>技能栏示例</h4>
+      <ul>
+        <li>熟悉 Git 版本管理：日常 commit / branch / merge，使用 .gitignore 管理 Unity 工程</li>
+        <li>使用 GitHub 进行私有仓库备份与版本回溯</li>
+      </ul>
+      <h4>项目经历里可写的一句</h4>
+      <p>「独立维护 2D RPG 练习项目，使用 Git 对场景、Prefab 与脚本进行版本管理，按功能点提交，避免本地崩溃导致进度丢失。」</p>
+    </div>
+    <div class="note">
+      面试可能问：<code>git status</code> / <code>add</code> / <code>commit</code> 区别？分支有什么用？为什么不提交 Library？把本页概念说清楚即可，不必背全部高级命令。
+    </div>
+  </section>
+
+  <section id="practice">
+    <h2>练习清单（做完再写简历更踏实）</h2>
+    <div class="card">
+      <ol>
+        <li>Unity 随意改一个无关紧要的注释 → 存盘 → <code>git status</code> 看到变化</li>
+        <li><code>git add</code> + <code>git commit -m "…"</code> → <code>git log --oneline</code> 看到新记录</li>
+        <li>开分支 <code>feature/practice</code>，再改一点，merge 回 <code>main</code></li>
+        <li>（推荐）创建 GitHub 私有库并 <code>push</code> 一次</li>
+        <li>故意改坏一个已跟踪文件，用 <code>git restore</code> 恢复，体会「可回溯」</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="faq">
+    <h2>常见问题</h2>
+    <div class="card">
+      <h4>commit 后还能改说明吗？</h4>
+      <p>最近一次且未 push 时可用 amend，但容易搞乱；入门阶段<strong>再 commit 一笔修正</strong>更安全。</p>
+    </div>
+    <div class="card">
+      <h4>为什么 git status 里没有 Library？</h4>
+      <p>被 <code>.gitignore</code> 忽略了，这是正确行为。换电脑克隆后，Unity 打开项目会重新生成 Library。</p>
+    </div>
+    <div class="card">
+      <h4>Cursor / VS 里能不能不打命令？</h4>
+      <p>可以。左侧 Source Control 面板：点 <code>+</code> 暂存 → 写 message → Commit。原理与命令行相同，简历仍算 Git 经验。</p>
+    </div>
+    <div class="card">
+      <h4>和上次强制重启丢场景有关吗？</h4>
+      <p>有。习惯变成「Ctrl+S → commit」，至少本机历史里有；再加 GitHub push，换机也能拉回。</p>
+    </div>
+  </section>
+
+  <p class="footer">工程工具 · Git 版本管理 · 与课程模块 1–8 并列</p>
+</main>
+
+</body>
+</html>

@@ -2,23 +2,17 @@
 
 模块 **8/8** · [打开学习网页](./index.html)
 
-## 相关脚本
+## 覆盖内容（已按当前代码）
 
-| 脚本 | 路径 |
-|------|------|
-| Skill_Base.cs | `Assets/Scripts/SkillSystem/Skill_Base.cs` |
-| Skill_Dash.cs | `Assets/Scripts/SkillSystem/Skill_Dash.cs` |
-| Skill_DataSO.cs | `Assets/Scripts/SkillSystem/Skill_DataSO.cs` |
-| Player_SkillManager.cs | `Assets/Scripts/Player/Player_SkillManager.cs` |
-| SkillType.cs | `Assets/Scripts/Enum/SkillType.cs` |
-| SkillUpgradeType.cs | `Assets/Scripts/Enum/SkillUpgradeType.cs` |
+- `Skill_Base` / `Skill_Dash` / `Skill_Shard`
+- `SkillObject_Base` / `SkillObject_Shard`
+- 解锁写入：`upgradeType` + `cooldown` + `damageScaleData`
+- Dash：`OnStartEffect` / `OnEndEffect`（已接 DashState）
+- Time Shard：Spell、追踪、Multicast、传送、HpRewind
+- 与 `AttackData` 伤害管道的衔接
 
-## 关联模块
+## 关联
 
-- **模块 7** 技能树与 UI：解锁时 `SetSkillUpgrade`
-- **模块 2** 玩家状态机：`CanUseSkill`、 `Player_DashState` 冲刺表现
-
-## struct.pdf
-
-- Dash 技能树各 Level 与 `SkillUpgradeType` 对应
-- Time Echo / Shard 为后续扩展
+- 模块 7 技能树 UI
+- 模块 2 DashState
+- 模块 5 / 6 伤害与属性

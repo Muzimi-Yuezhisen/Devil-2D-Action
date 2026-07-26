@@ -13,10 +13,21 @@ MonoBehaviour:
   m_Name: Skill data - Time shard
   m_EditorClassIdentifier: 
   cost: 0
+  unlockedByDefault: 0
   skillType: 2
   upgradeData:
     upgradeType: 6
     cooldown: 1
+    damageScale:
+      physical: 0
+      elemental: 1.5
+      chillDuration: 3
+      chillSlowMultiplier: 0.2
+      burnDuration: 3
+      burnDamageScale: 1
+      shockDuration: 3
+      shockDamageScale: 1
+      shockCharge: 0.4
   displayName: Time shard
   description: 'Create a shard filled with elemental magic.
 

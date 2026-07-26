@@ -350,18 +350,20 @@ Player                          ← Player.cs 监听 L 键
     <p>每个技能节点在 Inspector 拖一个 SO 资源。右键 Create → RPG Setup → Skill Data 创建。</p>
     <table>
       <tr><th>Skill_DataSO 字段</th><th>作用</th></tr>
-      <tr><td>cost</td><td>解锁消耗技能点</td></tr>
-      <tr><td>skillType</td><td>对应 Player 上哪种技能（Dash / TimeEcho…）</td></tr>
-      <tr><td>upgradeData</td><td>升级包：类型 + 冷却</td></tr>
       <tr><td>displayName / description / icon</td><td>UI 展示</td></tr>
+      <tr><td>cost</td><td>解锁消耗技能点</td></tr>
+      <tr><td>unlockedByDefault</td><td>Start 时自动 Unlock（如 Quick dash）；其 upgradeType 不能为 None</td></tr>
+      <tr><td>skillType</td><td>Dash / TimeEcho / TimeShard → 写到对应 Skill 组件</td></tr>
+      <tr><td>upgradeData</td><td>升级包：类型 + 冷却 + damageScaleData</td></tr>
     </table>
     <table>
       <tr><th>UpgradeData 字段</th><th>作用</th></tr>
-      <tr><td>upgradeType</td><td>SkillUpgradeType 枚举，决定 Dash 具体行为分支</td></tr>
-      <tr><td>cooldown</td><td>解锁后写入 Skill_Base 的冷却</td></tr>
+      <tr><td>upgradeType</td><td>SkillUpgradeType；整份替换当前分支</td></tr>
+      <tr><td>cooldown</td><td>写入 Skill_Base.cooldown</td></tr>
+      <tr><td>damageScaleData</td><td>写入 Skill_Base.damageScaleData（技能伤害/状态缩放）</td></tr>
     </table>
     <div class="note">
-      <code>UpgradeData</code> 是独立类（不在 SO 内部嵌套），Unlock 时把整个 <code>skillData.upgradeData</code> 传给 <code>Skill_Base.SetSkillUpgrade</code>。
+      <code>UpgradeData</code> 是独立类。Unlock 时把整个 <code>skillData.upgradeData</code> 传给 <code>SetSkillUpgrade</code>。高级节点会覆盖基础节点的 CD 与缩放。详见<a href="../核心技能系统/index.html">模块 8</a>。
     </div>
   </section>
 
@@ -371,10 +373,10 @@ Player                          ← Player.cs 监听 L 键
     <div class="path">Assets/Scripts/Player/Player_SkillManager.cs · 挂在 Player 上</div>
     <table>
       <tr><th>函数</th><th>做什么</th></tr>
-      <tr><td>Awake()</td><td>GetComponentInChildren 拿到 Skill_Dash</td></tr>
-      <tr><td>GetSkillByType(type)</td><td>switch SkillType → 返回对应 Skill_Base（目前只实现 Dash）</td></tr>
+      <tr><td>Awake()</td><td>GetComponentInChildren 拿到 Skill_Dash、Skill_Shard</td></tr>
+      <tr><td>GetSkillByType(type)</td><td>Dash→dash；TimeShard→shard；TimeEcho 未实现 return null</td></tr>
     </table>
-    <p>技能树 UI 不直接操作 Dash 逻辑，只通过这里拿到技能组件再调用 <code>SetSkillUpgrade</code>。</p>
+    <p>技能树 UI 只通过 Manager 拿技能组件再 <code>SetSkillUpgrade</code>。运行时释放见<a href="../核心技能系统/index.html">模块 8</a>。</p>
   </section>
 
   <!-- Player input -->

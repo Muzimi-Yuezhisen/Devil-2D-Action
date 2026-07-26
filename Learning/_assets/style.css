@@ -141,6 +141,30 @@ code {
   font-size: .85em;
   color: var(--accent2);
 }
+pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+pre code {
+  padding: 0;
+  background: transparent;
+  font-size: .82rem;
+  color: #adb5bd;
+  line-height: 1.55;
+}
+kbd {
+  font-family: var(--mono);
+  font-size: .8em;
+  padding: .1rem .4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface2);
+  color: var(--text);
+}
 .back { margin-bottom: 1.5rem; }
 .back a { color: var(--muted); text-decoration: none; font-size: .9rem; }
 .back a:hover { color: var(--accent); }
