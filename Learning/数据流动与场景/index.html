@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据流动与场景 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+  <style>
+    .scene {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin: 1.5rem 0;
+    }
+    .scene h3 {
+      margin-top: 0;
+      color: var(--accent2);
+    }
+    .scene .setup {
+      font-size: .9rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      padding-bottom: .75rem;
+      border-bottom: 1px dashed var(--border);
+    }
+    .step-list {
+      counter-reset: step;
+      list-style: none;
+      padding-left: 0;
+    }
+    .step-list > li {
+      position: relative;
+      padding-left: 2.4rem;
+      margin-bottom: 1.1rem;
+    }
+    .step-list > li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1.6rem;
+      height: 1.6rem;
+      line-height: 1.6rem;
+      text-align: center;
+      border-radius: 50%;
+      background: var(--surface2);
+      color: var(--accent);
+      font-size: .8rem;
+      font-weight: 600;
+    }
+    .pipe-table td:first-child { color: var(--warn); font-family: var(--font); }
+    .toc-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem .75rem;
+      margin: 1rem 0;
+    }
+    @media (max-width: 700px) { .toc-grid { grid-template-columns: 1fr; } }
+    .toc-grid a {
+      display: block;
+      padding: .55rem .75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: .88rem;
+    }
+    .toc-grid a:hover { border-color: var(--accent); }
+    .toc-grid .tagline { display: block; color: var(--muted); font-size: .78rem; margin-top: .2rem; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <span class="mod-badge">串联向 · 独立栏目</span>
+  <div class="section">
+    <h2>本页</h2>
+    <a href="#intro">怎么用</a>
+    <a href="#config">进游戏前配置</a>
+    <a href="#pipe">共用伤害管线</a>
+    <a href="#scenes">场景目录</a>
+  </div>
+  <div class="section">
+    <h2>场景</h2>
+    <a href="#s1">1 地面普攻打怪</a>
+    <a href="#s2">2 Spell 放碎片</a>
+    <a href="#s3">3 追踪碎片索敌</a>
+    <a href="#s4">4 冲刺 Dash</a>
+    <a href="#s5">5 弹反</a>
+    <a href="#s6">6 敌人进战斗</a>
+    <a href="#s7">7 敌人打玩家</a>
+    <a href="#s8">8 元素 Debuff</a>
+    <a href="#s9">9 技能树解锁</a>
+    <a href="#s10">10 Buff 拾取</a>
+    <a href="#s11">11 传送 / 回血</a>
+    <a href="#s12">12 多重充能</a>
+    <a href="#s13">13 开宝箱</a>
+  </div>
+  <div class="section">
+    <h2>收尾</h2>
+    <a href="#map">脚本对照表</a>
+    <a href="#faq">容易混的点</a>
+    <a href="../index.html">← 总导航</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../index.html">← Learning 总导航</a></div>
+
+  <h1>数据流动与场景</h1>
+  <p class="subtitle">不按文件夹拆脚本，而是按「一件事从按键到结算」走一遍：谁调用谁、数据从哪来、检测怎么做、伤害和 Debuff 怎么落到怪身上。</p>
+
+  <section id="intro">
+    <h2>怎么用这一页</h2>
+    <div class="card highlight">
+      <p>课程模块 1–8 是「按系统拆开讲」。这里是<strong>反过来</strong>：先假设一个你在游戏里会做的动作，再顺着调用链看数据怎么流。</p>
+      <ul>
+        <li>每个场景先给一句「发生了什么」，再逐步拆细节</li>
+        <li>多处场景会汇入同一条<strong>伤害管线</strong>（见下方），读一次就能串起普攻和技能</li>
+        <li>细节公式仍以模块 5/6 为准；这里侧重「顺序」和「谁拿着数据」</li>
+      </ul>
+    </div>
+    <div class="note">
+      建议先扫一遍「进游戏前配置」，再读场景 1 和共用伤害管线；后面场景会反复引用这两块，避免重复堆公式。
+    </div>
+  </section>
+
+  <section id="config">
+    <h2>进游戏前：做了哪些配置</h2>
+    <p>运行时很多「看起来像代码硬写」的东西，其实是进 Play 之前就在 Inspector / 资源里填好的。下面按「数据从哪来」列。</p>
+
+    <h3>1. 属性与默认数值</h3>
+    <ul>
+      <li><code>Stat_SetupSO</code>（Create → RPG Setup / Default Stat Setup）：最大生命、攻速、伤害、暴击、元素伤、护甲、抗性、力敏智体等<strong>基础值模板</strong></li>
+      <li>玩家 / 敌人上的 <code>Entity_Stats</code>：挂四组 <code>Stat</code>（resources / offense / defense / major），可用菜单「Update Default Stat Setup」从 SO 灌进基础值</li>
+      <li>这些值进游戏后还会被 Buff 修正（<code>Stat.AddModifier</code>），但<strong>起点</strong>是这里</li>
+    </ul>
+
+    <h3>2. 技能数据与技能树节点</h3>
+    <ul>
+      <li><code>Skill_DataSO</code>：显示名、图标、消耗、技能大类 <code>skillType</code>、是否 <code>unlockedByDefault</code>、以及一份 <code>UpgradeData</code>（升级类型、冷却、<code>DamageScaleData</code>）</li>
+      <li>场景里技能树 UI 每个图标是 <code>UI_TreeNode</code>：拖入对应 SO，填前置节点 <code>neededNodes</code>、互斥 <code>conflictNodes</code></li>
+      <li>玩家层级里要有 <code>Player_SkillManager</code>，子物体挂 <code>Skill_Dash</code> / <code>Skill_Shard</code>（运行时真正改的是这些组件上的字段，不是 SO 本身）</li>
+    </ul>
+
+    <h3>3. 伤害缩放（普攻 vs 技能）</h3>
+    <ul>
+      <li>普攻：<code>Entity_Combat.basicAttackScale</code>（Inspector 上的 <code>DamageScaleData</code>，例如元素倍率常设成 0.4 一类）</li>
+      <li>技能：解锁时把 SO 里的 <code>damageScaleData</code> 写进 <code>Skill_Base.damageScaleData</code></li>
+      <li>两者最后都进同一条：<code>stats.GetAttackData(scale)</code> → <code>AttackData</code></li>
+    </ul>
+
+    <h3>4. 碰撞与检测（范围从哪来）</h3>
+    <ul>
+      <li>普攻：<code>Entity_Combat</code> 上的 <code>targetCheck</code> 点、<code>targetCheckRadius</code>、<code>whatIsTarget</code> 层级</li>
+      <li>碎片爆炸：Prefab <code>SkillObject_Shard</code> 上的 <code>whatIsEnemy</code>、<code>checkRadius</code>（基类 <code>SkillObject_Base</code>）</li>
+      <li>敌人找玩家：<code>Enemy</code> 上的 <code>playerCheck</code>、<code>playerCheckDistance</code>、<code>whatIsPlayer</code></li>
+      <li>地面 / 墙：<code>Entity</code> 上的 ground/wall Check 点与 <code>whatIsGround</code></li>
+      <li>Unity 里还要保证 Layer、Collider、Tag 和这些 LayerMask 对得上，否则「明明贴脸却打不中」</li>
+    </ul>
+
+    <h3>5. 输入与状态机接线</h3>
+    <ul>
+      <li>Input System：<code>PlayerInputSet</code>（移动、跳、攻、弹反、冲刺、Spell、开技能树等）</li>
+      <li><code>Player.OnEnable</code>：Movement → <code>moveInput</code>；Spell → <code>skillManager.shard.TryUseSkill()</code>；ToggleSkillTree → UI</li>
+      <li>冲刺键不在这里绑死位移，而是各 <code>PlayerState.Update</code> 里读 Dash，再切 <code>dashState</code></li>
+      <li>Animator：攻击帧调 <code>AttackTrigger</code> → <code>Entity_Combat.PerformAttack</code>；敌人攻击帧可开关弹反窗口</li>
+    </ul>
+
+    <h3>6. Prefab 与场景物体</h3>
+    <ul>
+      <li><code>SkillObject_Shard</code> Prefab：拖给 <code>Skill_Shard.shardPrefab</code>，爆炸 VFX 拖给碎片上的 <code>vfxPrefab</code></li>
+      <li>敌人：Skeleton 挂状态、Health、Combat、StatusHandler、VFX；弹反警示物体挂在 <code>Enemy_VFX.attackAlert</code></li>
+      <li>Buff 球 / 宝箱：各自组件参数（增益列表、击退等）在场景或 Prefab 上配</li>
+    </ul>
+
+    <div class="flow">进 Play 前（配置）
+  Stat_SetupSO / Entity_Stats 基础值
+  Skill_DataSO → UI_TreeNode
+  Combat / Shard Prefab 的半径与 LayerMask
+  Input Actions + Animator 事件名
+        ↓
+进 Play 后（运行时）
+  默认解锁节点 Start → Unlock → SetSkillUpgrade
+  玩家输入 / 动画事件 / 敌人 AI 状态
+        ↓
+  AttackData 计算 → TakeDamage → Debuff / VFX</div>
+  </section>
+
+  <section id="pipe">
+    <h2>共用伤害管线（请先读这一段）</h2>
+    <p>无论是<strong>普攻</strong>还是<strong>碎片爆炸</strong>，打到可受伤目标后，核心路径几乎一样。差别只在于：谁发起检测、用哪份 <code>DamageScaleData</code>、伤害来源 Transform 是谁。</p>
+
+    <div class="flow">拿到目标 Collider
+  → GetComponent&lt;IDamagable&gt;()
+  → attackData = 攻击方.stats.GetAttackData(某份 DamageScaleData)
+       ├─ GetPhysicalDamage → 物伤 + 是否暴击
+       ├─ GetElementalDamage → 元素伤 + 主元素类型
+       └─ new ElementalEffectData → 冰/火/电效果参数
+  → damagable.TakeDamage(物伤, 元素伤, 元素, 伤害来源Transform)
+       ├─ 闪避判定
+       ├─ 护甲减伤（考虑攻击方穿甲）
+       ├─ 元素抗性减伤
+       ├─ 击退
+       └─ ReduceHealth → 可能死亡
+  → 仅 TakeDamage 返回 true 时：
+       ├─ 若元素 != None：StatusHandler.ApplyStatusEffect(元素, effectData)
+       └─（普攻）VFX.CreateOnHitVFX(是否暴击, 元素)</div>
+
+    <table class="pipe-table">
+      <thead><tr><th>环节</th><th>谁负责</th><th>你要记住的一点</th></tr></thead>
+      <tbody>
+        <tr><td>算伤害数字</td><td><code>Entity_Stats</code> + <code>AttackData</code></td><td>暴击在算物伤时掷骰；元素取「最高元素为主、其它半伤」</td></tr>
+        <tr><td>扣血与击退</td><td><code>Entity_Health</code> / <code>Enemy_Health</code></td><td>接口是 <code>IDamagable.TakeDamage</code>，宝箱也能实现它</td></tr>
+        <tr><td>Debuff</td><td><code>Entity_StatusHandler</code></td><td>不是「伤害函数里写死」，而是单独 Apply；抗性会削弱效果</td></tr>
+        <tr><td>命中表现</td><td><code>Entity_VFX</code></td><td>普攻有命中特效；碎片爆炸用自己的 VFX Prefab</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <strong>范围检测本身不「选目标 AI」：</strong>普攻和爆炸都是 <code>Physics2D.OverlapCircleAll</code> 一圈，筛有 <code>IDamagable</code> 的碰撞体。只有「追踪碎片」会先 <code>FindClosestTarget</code> 再飞过去，爆炸时仍是圆范围。
+    </div>
+  </section>
+
+  <section id="scenes">
+    <h2>场景目录</h2>
+    <div class="toc-grid">
+      <a href="#s1">1 地面普攻打怪<span class="tagline">按键 → 动画事件 → 圆检测 → 伤害</span></a>
+      <a href="#s2">2 Spell 放时间碎片<span class="tagline">施法键 → 生成物 → 定时/碰撞爆炸</span></a>
+      <a href="#s3">3 追踪碎片索敌<span class="tagline">最近敌人 + MoveTowards</span></a>
+      <a href="#s4">4 冲刺 Dash<span class="tagline">CD 与状态机位移 + 起止效果</span></a>
+      <a href="#s5">5 弹反<span class="tagline">窗口期 + ICounterable</span></a>
+      <a href="#s6">6 敌人如何进战斗<span class="tagline">射线发现 / 挨打进 Battle</span></a>
+      <a href="#s7">7 敌人打玩家<span class="tagline">同一条伤害管线反向</span></a>
+      <a href="#s8">8 元素 Debuff 落地<span class="tagline">冰减速 / 火跳伤 / 电感电</span></a>
+      <a href="#s9">9 技能树解锁再释放<span class="tagline">配置如何变成运行时字段</span></a>
+      <a href="#s10">10 捡 Buff<span class="tagline">Stat 修正的加与撤</span></a>
+      <a href="#s11">11 传送与生命回溯<span class="tagline">碎片当锚点</span></a>
+      <a href="#s12">12 多重充能<span class="tagline">次数与冷却回复</span></a>
+      <a href="#s13">13 打宝箱<span class="tagline">IDamagable 不只是怪</span></a>
+    </div>
+  </section>
+
+  <!-- ========== S1 ========== -->
+  <section id="s1" class="scene">
+    <h3>场景 1：玩家地面普攻打到怪物</h3>
+    <p class="setup"><strong>情境：</strong>站在地上按攻击键，连招第一段挥刀，刀光范围内的骷髅掉血，可能暴击，可能挂上元素异常。</p>
+
+    <div class="flow">Attack 键
+ → GroundState 切到 basicAttackState
+ → Animator 播 basicAttack，某帧 AttackTrigger
+ → Entity_Combat.PerformAttack
+ → OverlapCircleAll(targetCheck, radius, whatIsTarget)
+ → 对每个目标走「共用伤害管线」（basicAttackScale）
+ → 怪掉血 / Debuff / 命中特效；怪可能 TryEnterBattleState</div>
+
+    <ol class="step-list">
+      <li>
+        <strong>按键怎么进状态机？</strong><br>
+        <code>Player_GroundState.Update</code> 读到 <code>input.Player.Attack</code>，<code>ChangeState(basicAttackState)</code>。
+        空中则是 AiredState 进 <code>jumpAttackState</code>（另一套动画与位移，但攻击结算仍可走同一 Combat）。
+      </li>
+      <li>
+        <strong>为什么不是「按下立刻结算伤害」？</strong><br>
+        伤害绑在<strong>动画事件</strong>上：子物体 <code>Entity_AnimationTriggers.AttackTrigger</code> → <code>PerformAttack()</code>。
+        这样刀刃挥到的那一帧才判定，而不是按键瞬间。
+      </li>
+      <li>
+        <strong>范围检测怎么做？</strong><br>
+        <code>Physics2D.OverlapCircleAll(targetCheck.position, targetCheckRadius, whatIsTarget)</code>。
+        圆心是挂在角色上的空物体（常在武器前方），半径和 Layer 在 Combat 组件上配。
+        <em>没有</em>单独的「索敌列表」——圆里碰到谁算谁。
+      </li>
+      <li>
+        <strong>伤害数字从哪来？会不会暴击？</strong><br>
+        <code>stats.GetAttackData(basicAttackScale)</code>：
+        物伤走 <code>GetPhysicalDamage</code>（力量加成、暴击率/暴伤掷骰，结果写入 <code>attackData.isCrit</code>）；
+        元素走 <code>GetElementalDamage</code>（主元素 + 弱元素半伤 + 智力）。
+        缩放字段把「这一刀」相对面板的倍率压下来（例如元素 0.4）。
+      </li>
+      <li>
+        <strong>怪物怎么收到伤害？</strong><br>
+        目标上的 <code>Enemy_Health</code> 实现 <code>IDamagable</code>。
+        <code>TakeDamage</code> 里：闪避 → 用攻击方穿甲算护甲减免 → 元素抗性 → 击退 → <code>ReduceHealth</code>。
+        若攻击方是玩家，<code>Enemy_Health</code> 还会 <code>TryEnterBattleState</code>（挨打进战，见场景 6）。
+      </li>
+      <li>
+        <strong>Debuff 何时挂上？</strong><br>
+        <code>PerformAttack</code> 在 <code>TakeDamage</code> 之后，若 <code>element != None</code>，调目标 <code>StatusHandler.ApplyStatusEffect(element, effectData)</code>。
+        详见场景 8。
+      </li>
+      <li>
+        <strong>暴击有什么可见反馈？</strong><br>
+        仅当 <code>TakeDamage</code> 返回 true（没闪掉）时，<code>vfx.CreateOnHitVFX(..., isCrit, element)</code> 生成不同命中特效预制体。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S2 ========== -->
+  <section id="s2" class="scene">
+    <h3>场景 2：按 Spell 放下时间碎片，炸到怪物</h3>
+    <p class="setup"><strong>情境：</strong>已解锁基础 Shard。按施法键，脚下（或玩家位置）出现碎片，数秒后爆炸（或碰到怪立刻炸），范围内怪物受伤。</p>
+
+    <div class="flow">Spell 键（Player.OnEnable 绑定）
+ → skillManager.shard.TryUseSkill()
+ → CanUseSkill?（upgradeType!=None 且不在 CD）
+ → HandleShardRegular → CreateShard
+ → Instantiate(shardPrefab) → SetupShard
+      注入 playerStats + damageScaleData
+      Invoke(Explode, detinateTime)
+ → 定时到 / OnTriggerEnter2D(Enemy) → Explode
+ → DamageEnemiesInRadius → 共用伤害管线
+ → 播爆炸 VFX，Destroy 碎片，SetSkillOnCooldown</div>
+
+    <ol class="step-list">
+      <li>
+        <strong>输入入口和普攻不一样：</strong>Spell 在 <code>Player.OnEnable</code> 直接调技能，不经过「攻击状态」。
+        冲刺则是状态机；碎片是「技能组件自己 TryUse」。
+      </li>
+      <li>
+        <strong>解锁与冷却闸门：</strong><code>Skill_Base.CanUseSkill</code>：未解锁（<code>None</code>）或 CD 中直接 return。
+        基础碎片成功放出后会进冷却（具体在分支 Handle 末尾 <code>SetSkillOnCooldown</code>）。
+      </li>
+      <li>
+        <strong>生成物带着谁的属性？</strong><br>
+        <code>SetupShard</code> 把 <code>shardManager.player.stats</code> 和当前技能的 <code>damageScaleData</code> 拷进碎片。
+        爆炸时用<strong>玩家属性</strong>算 <code>AttackData</code>，不是怪物属性。
+      </li>
+      <li>
+        <strong>两种引爆：</strong>① <code>Invoke(Explode, time)</code> 定时；② 触发器碰到带 <code>Enemy</code> 的碰撞体立刻 <code>Explode</code>。
+        爆炸里 <code>DamageEnemiesInRadius(transform, checkRadius)</code> → 又是圆检测。
+      </li>
+      <li>
+        <strong>和普攻检测的差别：</strong>圆心是碎片位置，Layer 用 Prefab 上的 <code>whatIsEnemy</code>；但 <code>damageDealer</code> 记录真正的玩家，确保穿甲等攻击方属性可以被正确读取。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S3 ========== -->
+  <section id="s3" class="scene">
+    <h3>场景 3：追踪碎片如何「索敌」</h3>
+    <p class="setup"><strong>情境：</strong>解锁 <code>Shard_MoveToEnemy</code>（或多重里也会追踪）。碎片生成后飞向最近敌人，碰到或到时再炸。</p>
+
+    <ol class="step-list">
+      <li>
+        <strong>索敌算法：</strong><code>SkillObject_Base.FindClosestTarget</code>：
+        先 <code>OverlapCircleAll(自己, 半径10, whatIsEnemy)</code>，再比距离，取最近 Transform。
+        这是简单的「最近单位」，不是仇恨列表、不是锁敌 UI。
+      </li>
+      <li>
+        <strong>怎么飞：</strong><code>MoveTowardsClosestTarget(speed)</code> 记下 target 与 speed；
+        <code>Update</code> 里 <code>Vector3.MoveTowards</code> 每帧靠近。仍无导航网格，直线飞。
+      </li>
+      <li>
+        <strong>伤害何时算：</strong>仍然要等 <code>Explode</code>。飞只是改变爆炸位置；结算逻辑与场景 2 相同。
+      </li>
+      <li>
+        <strong>冲刺带出的碎片：</strong><code>Skill_Dash</code> 的起止效果也可 <code>CreateRawShard</code> 并指定是否移动——同一套 <code>SetupShard(..., canMove, speed)</code>。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S4 ========== -->
+  <section id="s4" class="scene">
+    <h3>场景 4：冲刺（Dash）</h3>
+    <p class="setup"><strong>情境：</strong>已解锁 Dash。在可冲刺状态下按冲刺键，角色短暂高速位移，可能带残影；若升级带碎片/克隆，起止会额外造物（克隆部分可能仍是占位日志）。</p>
+
+    <div class="flow">任意 PlayerState.Update
+ → Dash 键 + CanDash（技能可用、未贴墙、不在 dashState）
+ → dash.SetSkillOnCooldown()
+ → ChangeState(dashState)
+ → Enter: OnStartEffect + 残影 + 锁方向 + 重力=0
+ → Update: 恒定 dashSpeed，撞墙可取消
+ → Exit: OnEndEffect + 恢复重力</div>
+
+    <ol class="step-list">
+      <li>
+        <strong>CD 与位移分离：</strong>冷却写在 <code>Skill_Dash</code>（Skill_Base）；位移在 <code>Player_DashState</code>。
+        先 <code>SetSkillOnCooldown</code> 再进状态，避免连按刷冲刺。
+      </li>
+      <li>
+        <strong>OnStartEffect / OnEndEffect：</strong>按 <code>upgradeType</code> 决定是否在起点/终点生成碎片等。
+        这是「技能数据」插进「位移状态」的挂钩点。
+      </li>
+      <li>
+        <strong>残影：</strong><code>Player_VFX.DoImageEchoEffect(dashDuration)</code> 按间隔复制当前精灵，与伤害无关。
+      </li>
+      <li>
+        <strong>没有单独的冲刺伤害盒：</strong>基础 Dash 本身不走 PerformAttack；伤害来自升级生成的碎片爆炸（若有）。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S5 ========== -->
+  <section id="s5" class="scene">
+    <h3>场景 5：弹反成功</h3>
+    <p class="setup"><strong>情境：</strong>敌人攻击动画进入「可弹反窗口」，玩家按弹反键，窗口内的敌人被弹进眩晕。</p>
+
+    <div class="flow">敌人攻击动画事件 EnableCounterWindow
+ → enemy.canBeStunned = true，警示图标亮
+玩家 CounterAttack 键 → counterAttackState
+ → Enter 立刻 Player_Combat.CounterAttackPerformed
+ → OverlapCircleAll（同普攻检测圈）
+ → 目标 ICounterable 且 CanBeCountered → HandleCounter
+ → Skeleton 切 stunnedState（击飞、关窗口）
+敌人动画 DisableCounterWindow → 窗口关闭</div>
+
+    <ol class="step-list">
+      <li>
+        <strong>窗口是动画开的：</strong><code>EnemyAnnimationTriggers</code> 在攻击前摇/出刀帧开窗，收招关窗。
+        玩家弹反检测也是圆，和普攻共用 Combat 的 targetCheck。
+      </li>
+      <li>
+        <strong>不走 TakeDamage：</strong>弹反是状态切换（眩晕），不是算伤害管线。
+        接口 <code>ICounterable</code> 把「能被弹」和「被弹后干什么」交给具体敌人。
+      </li>
+      <li>
+        <strong>失败怎么收：</strong>没弹到人时靠 <code>stateTimer</code>（recovery）超时回待机；弹到了等动画 <code>triggerCalled</code>。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S6 ========== -->
+  <section id="s6" class="scene">
+    <h3>场景 6：敌人如何发现玩家并进入战斗</h3>
+    <p class="setup"><strong>情境：</strong>骷髅在巡逻，玩家走进视野；或玩家先普攻打中它——都会进入 Battle 追击。</p>
+
+    <ol class="step-list">
+      <li>
+        <strong>巡逻时发现：</strong><code>Enemy_GroundedState.Update</code>（Idle/Move 的基类）里
+        <code>PlayerDetected()</code> 为真 → <code>battleState</code>。
+        检测是<strong>朝向方向的射线</strong>：<code>Raycast</code> 长度 <code>playerCheckDistance</code>，层为 Player|Ground；命中物必须是 Player 层。
+      </li>
+      <li>
+        <strong>挨打进战：</strong><code>Enemy_Health.TakeDamage</code> 成功后，若伤害来源带 <code>Player</code>，
+        <code>TryEnterBattleState(damageDealer)</code>。已在 battle/attack 则忽略。
+      </li>
+      <li>
+        <strong>战斗里做什么：</strong>刷新「最后看见玩家」时间；过近后撤；进入 <code>attackDistance</code> 且仍看见玩家则 <code>attackState</code>；
+        超时没看见则回 Idle。追击用 <code>battleMoveSpeed</code> 朝玩家水平方向设速度。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S7 ========== -->
+  <section id="s7" class="scene">
+    <h3>场景 7：敌人攻击打到玩家</h3>
+    <p class="setup"><strong>情境：</strong>战斗中的骷髅进入 Attack，动画帧结算，玩家掉血。</p>
+
+    <ol class="step-list">
+      <li>
+        敌人同样有 <code>Entity_Combat</code> + 动画 <code>AttackTrigger</code> → <code>PerformAttack</code>。
+        <code>whatIsTarget</code> 配成玩家层；缩放用敌人自己的 <code>basicAttackScale</code>。
+      </li>
+      <li>
+        玩家 <code>Entity_Health.TakeDamage</code>：同一套闪避 / 护甲 / 抗性 / 击退。
+        血量归零 → <code>EntityDeath</code> → 玩家死亡事件 → 敌人 <code>HandlePlayerDeath</code> 回 Idle。
+      </li>
+      <li>
+        元素 Debuff 也能打到玩家（若敌人元素伤 > 0），走玩家身上的 <code>StatusHandler</code> 与 <code>SlowDownEntity</code>。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S8 ========== -->
+  <section id="s8" class="scene">
+    <h3>场景 8：元素 Debuff 如何释放到怪物身上</h3>
+    <p class="setup"><strong>情境：</strong>玩家火焰属性较高，一刀或一次爆炸后，怪物身上闪红并持续掉血（或冰减速、电感电蓄能）。</p>
+
+    <div class="flow">AttackData 构造时
+ → GetElementalDamage 选出主元素（火/冰/电）
+ → ElementalEffectData 用 DamageScaleData + 攻击方面板算：
+      冰：时长、减速倍率
+      火：时长、总燃烧伤害（火伤×burnDamageScale）
+      电：时长、落雷伤害、每次充能 shockCharge
+TakeDamage 之后
+ → ApplyStatusEffect(element, effectData)
+ → CanBeApplied?（通常同时只挂一种；电可叠充能）
+ → Ice: Chill 协程 + entity.SlowDownEntity
+ → Fire: Burn 协程按 tick 扣血
+ → Lightning: 积蓄 currentCharge，满则落雷 Instantitate + ReduceHealth</div>
+
+    <ol class="step-list">
+      <li>
+        <strong>抗性何时生效：</strong>冰缩短持续时间；火削弱燃烧总伤；电削弱本次获得的充能。
+        都在 StatusHandler 的 Apply* 里乘 <code>(1 - resistance)</code>。
+      </li>
+      <li>
+        <strong>和「元素瞬间伤害」的区别：</strong>元素瞬间伤在 <code>TakeDamage</code> 里一次性扣；
+        Debuff 是额外的持续效果。两者可以同时发生。
+      </li>
+      <li>
+        <strong>表现：</strong><code>PlayOnStatusVfx</code> 改精灵颜色闪烁；感电满额再播落雷 Prefab。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S9 ========== -->
+  <section id="s9" class="scene">
+    <h3>场景 9：进游戏后点技能树，再释放新技能</h3>
+    <p class="setup"><strong>情境：</strong>开局只有默认解锁。打开技能树点亮「愤怒碎片」，扣点后按 Spell，行为变成新分支。</p>
+
+    <div class="flow">ToggleSkillTreeUI → 显示 UI_SkillTree
+点击 UI_TreeNode
+ → CanBeUnlocked（点数、前置、互斥）
+ → Unlock
+    扣点、图标变白、锁互斥子树、连线提亮
+    skillManager.GetSkillByType(skillType)
+      .SetSkillUpgrade(upgradeData)
+         upgradeType / cooldown / damageScaleData ← 写入运行时技能
+下次 Spell → TryUseSkill 走新的 Unlocked(分支) 判断</div>
+
+    <ol class="step-list">
+      <li>
+        <strong>SO 不会在运行时被改：</strong>改的是 Player 子物体上 <code>Skill_Shard</code> 的字段。
+        退还 <code>Refund</code> 会退点，但注意是否把 upgrade 清回 None 要对照你当前实现。
+      </li>
+      <li>
+        <strong>unlockedByDefault：</strong>节点 <code>Start</code> 就 Unlock，等于「进游戏前配置 + 进 Play 自动写入」。
+        若 SO 写了默认解锁，但 upgradeType 仍是 None，会出现「以为有技能其实 CanUseSkill 失败」。
+      </li>
+      <li>
+        <strong>伤害变强从哪来：</strong>新分支 SO 里更激进的 <code>DamageScaleData</code> 被 SetSkillUpgrade 换上，
+        之后爆炸用的就是这份缩放。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S10 ========== -->
+  <section id="s10" class="scene">
+    <h3>场景 10：捡起地上的 Buff</h3>
+    <p class="setup"><strong>情境：</strong>角色碰到漂浮增益球，几秒内攻击变强，到期恢复。</p>
+
+    <ol class="step-list">
+      <li>
+        <code>OnTriggerEnter2D</code> 取到 <code>Entity_Stats</code>，对每个 <code>Buff</code>：
+        <code>GetStatByType(type).AddModifier(value, buffName)</code>。
+      </li>
+      <li>
+        <code>Stat.GetValue</code> 惰性重算：有修正就 base+所有 modifier。
+        之后普攻/技能再 <code>GetAttackData</code> 时，读到的已是加成后数值。
+      </li>
+      <li>
+        到期 <code>RemoveModifier(buffName)</code> 按来源名清掉，销毁球。
+        生效期间 <code>canBeUsed=false</code> 且精灵透明，防重复吃。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S11 ========== -->
+  <section id="s11" class="scene">
+    <h3>场景 11：传送碎片与生命回溯</h3>
+    <p class="setup"><strong>情境：</strong>第一次 Spell 放下锚点；第二次 Spell 与碎片换位（回溯还会把血量百分比设回放置时）。</p>
+
+    <ol class="step-list">
+      <li>
+        <code>currentShard == null</code>：只 <code>CreateShard</code>（回溯分支还会 <code>savedHealthPercent = GetHealthPercent()</code>），通常<strong>先不进 CD</strong>，方便二次激活。
+      </li>
+      <li>
+        再次释放：<code>SwapPlayerAndShard</code>——记下双方位置，碎片移到玩家旧位置并 <code>Explode()</code>（原地炸）、
+        玩家 <code>TeleportPlayer</code> 到碎片旧位置；然后 <code>SetSkillOnCooldown</code>。
+      </li>
+      <li>
+        回溯额外一步：<code>SetHealthToPercent(savedHealthPercent)</code>。
+        这是「技能状态存在 Skill_Shard 字段里」，不是场景存档。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S12 ========== -->
+  <section id="s12" class="scene">
+    <h3>场景 12：多重充能碎片</h3>
+    <p class="setup"><strong>情境：</strong>解锁 Multicast，可连续扔多次追踪碎片，充能按冷却间隔回复。</p>
+
+    <ol class="step-list">
+      <li>
+        <code>currentCharges</code> 初始等于 <code>maxCharges</code>（Awake）。
+        每次 Handle 成功：Create + 追踪 + charges--；不为 0 时不走普通「整技能 CD 锁死」，而是用充能门闩。
+      </li>
+      <li>
+        <code>ShardRechargeCo</code>：每隔 <code>cooldown</code> 秒 +1，直到满。
+        这里把「冷却字段」复用成「回充间隔」。
+      </li>
+      <li>
+        爆炸伤害仍是场景 2/3 的管线；变的是<strong>能放几次、怎么回复</strong>。
+      </li>
+    </ol>
+  </section>
+
+  <!-- ========== S13 ========== -->
+  <section id="s13" class="scene">
+    <h3>场景 13：普攻打开宝箱</h3>
+    <p class="setup"><strong>情境：</strong>砍到箱子，箱子播开启动画并被弹开旋转。</p>
+
+    <ol class="step-list">
+      <li>
+        箱子实现 <code>IDamagable</code>，因此能进普攻的 Overlap 结果里。
+        <code>TakeDamage</code> 不扣「血条」，而是播 VFX、设 <code>chestOpen</code>、给刚体速度与角速度。
+      </li>
+      <li>
+        说明接口设计：战斗检测面向「可受伤」，不绑死 Enemy 类型——技能爆炸若 Layer 包含箱子，同样能开箱（取决于 LayerMask）。
+      </li>
+    </ol>
+  </section>
+
+  <section id="map">
+    <h2>脚本对照表（按「职责」而不是文件夹）</h2>
+    <table>
+      <thead><tr><th>我想查…</th><th>去看</th></tr></thead>
+      <tbody>
+        <tr><td>按键如何进状态 / 进技能</td><td><code>Player</code>、<code>PlayerState</code>、<code>Player_*State</code></td></tr>
+        <tr><td>圆检测打人</td><td><code>Entity_Combat</code>、<code>SkillObject_Base</code></td></tr>
+        <tr><td>暴击 / 护甲 / 元素数字</td><td><code>Entity_Stats</code>、<code>AttackData</code></td></tr>
+        <tr><td>扣血击退死亡</td><td><code>Entity_Health</code>、<code>Enemy_Health</code></td></tr>
+        <tr><td>冰火电持续效果</td><td><code>Entity_StatusHandler</code>、<code>ElementalEffectData</code></td></tr>
+        <tr><td>碎片分支逻辑</td><td><code>Skill_Shard</code>、<code>SkillObject_Shard</code></td></tr>
+        <tr><td>冲刺位移与特效钩子</td><td><code>Player_DashState</code>、<code>Skill_Dash</code></td></tr>
+        <tr><td>解锁如何改运行时</td><td><code>UI_TreeNode</code>、<code>Skill_Base.SetSkillUpgrade</code></td></tr>
+        <tr><td>敌人 AI 流转</td><td><code>Enemy</code>、<code>Enemy_*State</code></td></tr>
+        <tr><td>临时属性加成</td><td><code>Object_Buff</code>、<code>Stat</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="faq">
+    <h2>容易混的点</h2>
+    <div class="card">
+      <ul>
+        <li><strong>检测 ≠ 索敌：</strong>圆/射线只回答「这一帧谁在范围内」；追踪碎片的「最近敌人」才是轻量索敌。</li>
+        <li><strong>动画事件 ≠ 输入事件：</strong>输入决定进哪个状态；刀伤多半在动画事件里结算。</li>
+        <li><strong>SO 配置 ≠ 运行时技能：</strong>树节点 Unlock 才把升级数据拷到 <code>Skill_*</code> 组件。</li>
+        <li><strong>元素瞬间伤 ≠ Debuff：</strong>一个在 TakeDamage 里扣，一个在 StatusHandler 里挂。</li>
+        <li><strong>同一条伤害管线：</strong>普攻、技能爆炸、（配置正确时）敌人打玩家，都汇入 GetAttackData → TakeDamage。</li>
+      </ul>
+    </div>
+    <p class="footer">实现细节与公式：模块 5 战斗、6 属性、7 技能树、8 核心技能。本页只负责把它们串成「故事线」。</p>
+  </section>
+
+  <div class="module-nav">
+    <a href="../战斗系统/index.html">5 战斗系统</a>
+    <a href="../属性系统/index.html">6 属性系统</a>
+    <a href="../技能树系统与UI/index.html">7 技能树</a>
+    <a href="../核心技能系统/index.html">8 核心技能</a>
+    <a href="../设计决策与面试/index.html">设计决策</a>
+    <a href="../核心战斗闭环与稳定性/index.html">战斗闭环</a>
+    <a href="../index.html">总导航</a>
+  </div>
+</main>
+</body>
+</html>

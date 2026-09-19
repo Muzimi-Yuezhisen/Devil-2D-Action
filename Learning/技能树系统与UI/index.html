@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>技能树系统与UI · Devil 项目学习</title>
   <link rel="stylesheet" href="../_assets/style.css">
+  <style>
+    .focus-tag { display:inline-block; color:#ffd27a; border:1px solid #9a6d25; background:rgba(154,109,37,.12); border-radius:999px; padding:.2rem .65rem; font-size:.76rem; font-weight:700; margin:0 .4rem .6rem 0; }
+  </style>
 </head>
 <body>
 
@@ -62,6 +65,7 @@
   <!-- OVERVIEW -->
   <section id="overview">
     <h2>模块总览</h2>
+    <span class="focus-tag">交互升级 · 重点掌握</span>
     <div class="card highlight">
       <p><strong>这个模块解决什么问题？</strong></p>
       <ul>
@@ -84,12 +88,14 @@
   <section id="hierarchy">
     <h2>场景 Hierarchy 结构</h2>
     <div class="flow">Canvas                          ← UI.cs 挂在这里
-├── UI_SkillTree                  ← 默认 inactive，按 L 切换显示
+├── UI_SkillTree                  ← 保持 active，用 CanvasGroup 默认隐藏
 │   ├── UI_TreeNode - Time echo   ← 根节点，带 UI_TreeConnectHandler
 │   │   ├── Connection            ← UI_TreeConnection（画线）
 │   │   └── Connection (1)
 │   ├── UI_TreeNode - Healing wisp
-│   └── …更多节点
+│   ├── …更多节点
+│   └── SkillTree_Header          ← 运行时生成：标题、快捷键、关闭按钮
+├── SkillTree_ClosedHint          ← 运行时生成：[L] 打开提示
 └── UI_skillToolTip               ← UI_SkillToolTip，与 SkillTree 同级
 
 Player                          ← Player.cs 监听 L 键
@@ -108,8 +114,11 @@ Player                          ← Player.cs 监听 L 键
   → Input System: Player/ToggleSkillTreeUI.performed
   → Player.OnEnable 里注册的回调
   → UI.ToggleSkillTreeUI()
-  → skillTree.gameObject.SetActive(true/false)
-  → 同时隐藏 Tooltip</div>
+  → SetSkillTreeVisible(true)
+  → CanvasGroup 开启交互和射线
+  → 使用 unscaledDeltaTime 淡入 + 0.97 → 1 缩放
+  → 隐藏右下角打开提示，并显示顶部关闭提示</div>
+      <p><strong>关闭路径：</strong>再次按 L、按 Esc 或点击 × 都会调用关闭逻辑。Esc 先由 <code>CombatFlowController</code> 尝试关闭技能树；只有技能树原本没开时，才进入暂停菜单。</p>
     </div>
     <div class="card">
       <h3>流程 2：悬停节点</h3>
@@ -163,15 +172,26 @@ Player                          ← Player.cs 监听 L 键
       <tr><th>名称</th><th>类型</th><th>作用</th></tr>
       <tr><td>skillToolTip</td><td>UI_SkillToolTip</td><td>Tooltip 面板引用，Awake 时自动查找</td></tr>
       <tr><td>skillTree</td><td>UI_SkillTree</td><td>技能树面板引用，Awake 时查找（含 inactive）</td></tr>
-      <tr><td>skillTreeEnabled</td><td>bool</td><td>记录技能树当前是否显示（私有状态）</td></tr>
+      <tr><td>IsSkillTreeOpen</td><td>bool</td><td>对外只读的真实开关状态，供 Esc 输入仲裁和测试读取</td></tr>
+      <tr><td>skillTreeCanvasGroup</td><td>CanvasGroup</td><td>控制透明度、是否可点击、是否拦截射线</td></tr>
+      <tr><td>closedHint</td><td>GameObject</td><td>关闭时常驻的 <code>[L] OPEN SKILL TREE</code> 提示</td></tr>
     </table>
 
     <h3>函数</h3>
     <table>
       <tr><th>函数</th><th>何时调用</th><th>做什么</th></tr>
-      <tr><td>Awake()</td><td>Canvas 初始化</td><td>用 <code>GetComponentInChildren</code> 找到 Tooltip 和 SkillTree。SkillTree 必须传 <code>true</code> 才能找到默认关闭的子物体</td></tr>
-      <tr><td>ToggleSkillTreeUI()</td><td>Player 按 L 键</td><td>翻转 <code>skillTreeEnabled</code>；SetActive 技能树；关闭 Tooltip 避免残留</td></tr>
+      <tr><td>Awake()</td><td>Canvas 初始化</td><td>查找 Tooltip 和 SkillTree，补齐 CanvasGroup，生成页眉/提示，并强制同步为默认关闭</td></tr>
+      <tr><td>ToggleSkillTreeUI()</td><td>Player 按 L 键</td><td>根据 <code>IsSkillTreeOpen</code> 调用统一开关入口</td></tr>
+      <tr><td>OpenSkillTree() / CloseSkillTree()</td><td>L、Esc、关闭按钮</td><td>提供语义明确的入口，避免外部直接改 GameObject 状态</td></tr>
+      <tr><td>TryCloseSkillTree()</td><td>CombatFlowController 收到 Esc</td><td>若已打开则关闭并返回 true，表示这次 Esc 已被消费</td></tr>
+      <tr><td>AnimateVisibility()</td><td>每次开关</td><td>用不受暂停影响的时间完成淡入淡出和轻微缩放</td></tr>
+      <tr><td>BuildSkillTreeChrome()</td><td>Awake</td><td>运行时创建页眉、快捷键提示和 × 按钮</td></tr>
     </table>
+    <div class="card highlight">
+      <span class="focus-tag">面试重点</span>
+      <p><strong>为什么不用 SetActive(false)？</strong>技能节点的 <code>Awake/Start</code> 负责查引用、布局和默认解锁。直接禁用整棵技能树会推迟这些生命周期函数，甚至让玩家没打开面板前技能尚未初始化。保留 active、用 <code>CanvasGroup</code> 隐藏，既能关闭视觉与点击，又不影响业务初始化。</p>
+      <p><strong>为什么 TryClose 返回 bool？</strong>这是输入消费：Esc 同时可能代表“关闭当前面板”和“暂停游戏”。上层先问当前面板能否处理；返回 true 后就不再继续暂停，防止一个键触发两个界面。</p>
+    </div>
   </section>
 
   <!-- UI_SkillTree -->

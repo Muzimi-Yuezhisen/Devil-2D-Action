@@ -149,7 +149,7 @@ HP ≤ 0 → EntityDeath → deadState（禁用输入、关闭物理）</div>
       <tr><td>SlowDownEntityCo(duration, slowMultiplier)</td><td>Entity_StatusHandler 冰冻等调用 SlowDownEntity 时</td><td>备份 moveSpeed、jumpForce、anim.speed、wallJumpForce、jumpAttackVelocity、attackVelocity[]；按 (1-slowMultiplier) 缩放；WaitForSeconds 后全部还原</td></tr>
       <tr><td>EntityDeath()</td><td>Entity_Health.Die() → entity.EntityDeath()</td><td>base.EntityDeath()；触发 OnPlayerDeath；ChangeState(deadState)</td></tr>
       <tr><td>EnterAttackStateWithDelay()</td><td>BasicAttackState 连击预输入时 HandleStateExit</td><td>若已有协程则 Stop；Start EnterAttackStateWithDelayCo</td></tr>
-      <tr><td>EnterAttackStateWithDelayCo()</td><td>EnterAttackStateWithDelay 内部</td><td>WaitForEndOfFrame 后 ChangeState(basicAttackState)，让 Animator Bool 先 false 再 true</td></tr>
+      <tr><td>EnterAttackStateWithDelayCo()</td><td>EnterAttackStateWithDelay 内部</td><td>WaitForEndOfFrame 后 ReenterState(basicAttackState)，显式执行一次 Exit/Enter</td></tr>
       <tr><td>OnEnable()</td><td>对象启用时</td><td>input.Enable()；Movement performed/canceled 写 moveInput；L 键 ToggleSkillTreeUI</td></tr>
       <tr><td>OnDisable()</td><td>对象禁用时</td><td>input.Disable()</td></tr>
     </table>
@@ -411,7 +411,7 @@ HP ≤ 0 → EntityDeath → deadState（禁用输入、关闭物理）</div>
     <h2>常见问题</h2>
     <div class="card">
       <h3>为什么连击不直接 ChangeState(basicAttackState)，要用 EnterAttackStateWithDelay？</h3>
-      <p>Animator 的 Bool 参数在同一状态内从 true→false→true 时，有时不会重新触发过渡。HandleStateExit 先把 <code>animBoolName</code> 设为 false，等一帧（WaitForEndOfFrame）再切回 basicAttackState，强制 Animator 读到 false 后再 Enter 设 true，连击动画才能正常衔接。</p>
+      <p>Animator 的 Bool 参数在同一状态内从 true→false→true 时，有时不会重新触发过渡。HandleStateExit 先把 <code>animBoolName</code> 设为 false，等到 <code>WaitForEndOfFrame</code> 后调用 <code>ReenterState(basicAttackState)</code>，显式执行一次 Exit/Enter。不能调用普通 <code>ChangeState</code>，因为它会拒绝“目标状态就是当前状态”，导致第一段结束后无法进入第二、三段。</p>
     </div>
     <div class="card">
       <h3>Dash 为什么在 PlayerState 基类里检测，而不是单独一个「全局状态」？</h3>

@@ -12,22 +12,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 544ecf58f7159ee4abe167526cc02510, type: 3}
   m_Name: Default Stat Setup - Player
   m_EditorClassIdentifier: 
-  maxHealth: 100
-  healthRegen: 0
+  balanceNote: '目标：约 5 次普攻击败普通敌人、约 7 次击败重型敌人；可承受约 8 次普通敌人攻击。'
+  maxHealth: 110
+  healthRegen: 0.5
   attackSpeed: 1
-  damage: 10
-  critChance: 0
+  damage: 14
+  critChance: 8
   critPower: 150
   armorReduction: 0
   fireDamage: 0
   iceDamage: 0
   lightningDamage: 0
-  armor: 0
-  evasion: 0
+  armor: 12
+  evasion: 1
   fireResistance: 0
   iceResistance: 0
   lightningResistance: 0
-  strength: 0
-  agility: 0
+  strength: 4
+  agility: 4
   intelligence: 0
-  vitality: 0
+  vitality: 4

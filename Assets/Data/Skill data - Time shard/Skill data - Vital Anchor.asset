@@ -18,7 +18,6 @@ MonoBehaviour:
   upgradeData:
     upgradeType: 10
     cooldown: 4
-  displayName: Vital Anchor
-  description: When you coming back to shard, you get same hp % as you had when you
-    created shard.
+  displayName: 生命锚点
+  description: 回到碎片位置时，将生命比例恢复为创造碎片时的状态。
   icon: {fileID: -982730425, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

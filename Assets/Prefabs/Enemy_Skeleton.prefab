@@ -182,10 +182,10 @@ MonoBehaviour:
   isDead: 0
   regenInterval: 1
   canRegenerateHealth: 1
-  knockbackPower: {x: 1.5, y: 2.5}
-  heavyKnockbackpower: {x: 7, y: 7}
-  knockbackDuration: 0.2
-  heavyKnockbackDuration: 0.5
+  knockbackPower: {x: 1.2, y: 0.8}
+  heavyKnockbackpower: {x: 4, y: 3}
+  knockbackDuration: 0.12
+  heavyKnockbackDuration: 0.25
   heavyDamageThreshold: 0.3
 --- !u!114 &5524181695278418604
 MonoBehaviour:
@@ -223,17 +223,17 @@ MonoBehaviour:
   defaultStatSetup: {fileID: 11400000, guid: 78b773046648f43418ef75464e8f80cb, type: 2}
   resources:
     maxHealth:
-      baseValue: 100
+      baseValue: 80
       modifiers: []
     healthRegen:
       baseValue: 0
       modifiers: []
   offense:
     attackSpeed:
-      baseValue: 1
+      baseValue: 0.9
       modifiers: []
     damage:
-      baseValue: 10
+      baseValue: 16
       modifiers: []
     critPower:
       baseValue: 150
@@ -255,7 +255,7 @@ MonoBehaviour:
       modifiers: []
   defense:
     armor:
-      baseValue: 0
+      baseValue: 3
       modifiers: []
     evasion:
       baseValue: 0
@@ -271,7 +271,7 @@ MonoBehaviour:
       modifiers: []
   major:
     strength:
-      baseValue: 0
+      baseValue: 2
       modifiers: []
     agility:
       baseValue: 0
@@ -280,7 +280,7 @@ MonoBehaviour:
       baseValue: 0
       modifiers: []
     vitality:
-      baseValue: 0
+      baseValue: 1
       modifiers: []
 --- !u!114 &3778465499294084625
 MonoBehaviour:

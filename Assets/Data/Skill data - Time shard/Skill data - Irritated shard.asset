@@ -28,6 +28,6 @@ MonoBehaviour:
       shockDuration: 3
       shockDamageScale: 1.5
       shockCharge: 0.4
-  displayName: Irritated shard
-  description: Shard will move towards closest enemy.
+  displayName: 追猎碎片
+  description: 时光碎片会主动追踪距离最近的敌人。
   icon: {fileID: 1184643374, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

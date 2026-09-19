@@ -353,7 +353,7 @@ SkillObject_Base.DamageEnemiesInRadius
       <tr><td>PlayOnStatusVfx(duration, element)</td><td>Entity_StatusHandler 各状态协程</td><td>按 element 选 chill/burn/electrify 颜色，StartCoroutine(PlayStatusVfxCo)</td></tr>
       <tr><td>StopAllVfx()</td><td>Entity_StatusHandler.StopElectrifyEffect</td><td>StopAllCoroutines()；sr.color=White；sr.material=originalMaterial</td></tr>
       <tr><td>PlayStatusVfxCo(duration, effectColor)</td><td>PlayOnStatusVfx 内部</td><td>private 协程：每 0.25s 在 lightColor/darkColor 间 toggle sr.color；结束后恢复 White</td></tr>
-      <tr><td>CreateOnHitVFX(target, isCrit, element)</td><td>PerformAttack 命中后</td><td>按 isCrit 选 prefab（代码：isCrit?hitVFX:critHitVFX）；Instantiate；可选按 element 染色（当前有注释）；facingDir==-1 且 isCrit 时翻转</td></tr>
+      <tr><td>CreateOnHitVFX(target, isCrit, element)</td><td>PerformAttack 命中后</td><td>按 isCrit 选 prefab（代码：isCrit?critHitVFX:hitVFX）；Instantiate；facingDir==-1 且 isCrit 时翻转</td></tr>
       <tr><td>GetElementColor(element)</td><td>SkillObject_Shard 爆炸 VFX 等</td><td>Ice/Fire/Lightning → 对应颜色；供外部染色</td></tr>
       <tr><td>PlayOnDamageVfx()</td><td>Entity_Health.ReduceHealth、Object_Chest.TakeDamage</td><td>若已有 onDamageVfxCoroutine 则 Stop；Start OnDamageVfxCo（连击刷新闪白时长）</td></tr>
       <tr><td>OnDamageVfxCo()</td><td>PlayOnDamageVfx 内部</td><td>private 协程：sr.material=onDamageMaterial → Wait onDamageVfxDuration → 还原 originalMaterial</td></tr>
@@ -546,7 +546,7 @@ SkillObject_Base.DamageEnemiesInRadius
     <p>敌人攻击动画里 <code>EnableCounterWindow</code> 事件 → <code>Enemy.EnableCounterWindow(true)</code> + <code>Enemy_VFX.EnableAttackAlert(true)</code>。窗口结束或进入 Stunned 时关闭。玩家须在窗口内进入 CounterAttackState 且 Overlap 碰到 CanBeCountered 的敌人。</p>
 
     <h3>Entity_VFX 暴击预制体是否写反了？</h3>
-    <p>当前代码 <code>CreateOnHitVFX</code> 中 <code>isCrit ? hitVFX : critHitVFX</code>，命名上与直觉相反。文档按<strong>现有代码行为</strong>记录；若表现不对请检查此三元表达式。</p>
+    <p>已修复。当前代码使用 <code>isCrit ? critHitVFX : hitVFX</code>：暴击选择暴击预制体，普通命中选择普通预制体；仅 <code>TakeDamage</code> 返回 true 时播放。</p>
 
     <h3>宝箱为什么需要 Entity_VFX 和 IDamagable？</h3>
     <p>复用同一套攻击检测（Overlap + IDamagable），无需单独写「开箱」碰撞逻辑。受击只播 VFX + 物理反馈，不走 Entity_Health。</p>

@@ -18,6 +18,6 @@ MonoBehaviour:
   upgradeData:
     upgradeType: 8
     cooldown: 4
-  displayName: Mirror shard
-  description: You can create up to 3 shards.
+  displayName: 镜像碎片
+  description: 最多可以同时创造 3 枚时光碎片。
   icon: {fileID: -947979763, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

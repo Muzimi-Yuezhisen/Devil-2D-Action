@@ -1,60 +1,67 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
+/// <summary>
+/// åœ°é¢æ™®æ”»è¿æ‹›ï¼šä½ç§»ã€è¿æ®µç´¢å¼•ã€é¢„è¾“å…¥ä¸‹ä¸€æ®µã€‚
+/// </summary>
 public class Player_BasicAttackState : PlayerState
 {
-    //Íæ¼Ò´¥·¢¹¥»÷ºó£¬ÓĞÒ»Ğ¡¶ÎÊ±¼äµ÷ÕûÎ»ÖÃ
+    /// <summary>æœ¬æ®µæ”»å‡»ä½ç§»å‰©ä½™æ—¶é—´ã€‚</summary>
     private float attackVelocityTimer;
-    //Á¬»÷
+    /// <summary>è¿æ‹›èµ·å§‹æ®µç´¢å¼•ã€‚</summary>
     private const int FirstComboIndex = 1;
+    /// <summary>å½“å‰è¿æ‹›æ®µï¼ˆä» 1 å¼€å§‹ï¼‰ã€‚</summary>
     private int comboIndex = 1;
+    /// <summary>æœ€å¤§è¿æ‹›æ®µæ•°ã€‚</summary>
     private int comboLimit = 3;
-    //Á¬»÷ÖĞ¶ÏÊ±¼ä
+    /// <summary>ä¸Šæ¬¡æ”»å‡»ç»“æŸæ—¶é—´ï¼Œç”¨äºè¶…æ—¶é‡ç½®è¿æ‹›ã€‚</summary>
     private float lastTimeAttacked;
-    //¹¥»÷¹ı³ÌÖĞ×ªÏò
+    /// <summary>æœ¬æ®µæ”»å‡»æœå‘ã€‚</summary>
     private int attackDir;
-
-    //Ô¤ÊäÈë£¬Íæ¼ÒÁ¬Ğø¹¥»÷¾ÍÖ±½ÓÁ¬»÷£¬²»ÇĞ»»»Øidle×´Ì¬
+    /// <summary>æ˜¯å¦å·²é¢„è¾“å…¥ä¸‹ä¸€æ®µæ”»å‡»ã€‚</summary>
     private bool comboAttackQueued;
-    
+    public int CurrentComboIndex => comboIndex;
+    public int ComboLimit => comboLimit;
+
+    /// <summary>æŒ‰æ”»å‡»ä½ç§»æ•°ç»„é•¿åº¦æ ¡å‡†è¿æ‹›ä¸Šé™ã€‚</summary>
     public Player_BasicAttackState(Player player, StateMachine stateMachine, string animBoolName) : base(player, stateMachine, animBoolName)
     {
-        if(comboLimit != player.attackVelocity.Length)
+        int configuredComboCount = player.attackVelocity?.Length ?? 0;
+        if (configuredComboCount > 0 && comboLimit != configuredComboCount)
         {
-            comboLimit = player.attackVelocity.Length;
+            comboLimit = configuredComboCount;
             Debug.LogWarning("comboLimit has been adjusted, according to attack velocity array!");
         }
     }
 
+    /// <summary>è¿›å…¥ï¼šé‡ç½®é¢„è¾“å…¥ã€åŒæ­¥æ”»é€Ÿã€è®¾æ®µç´¢å¼•å¹¶æ–½åŠ ä½ç§»ã€‚</summary>
     public override void Enter()
     {
         base.Enter();
         comboAttackQueued = false;
         ResetComboIndexIfNeeded();
         SyncAttackSpeed();
+        float attackSpeed = Mathf.Max(0.01f, stats.offense.attackSpeed.GetValue());
+        stateTimer = 1.25f / attackSpeed;
 
-        //¹¥»÷ÖĞ×ªÏò
         attackDir = player.moveInput.x != 0 ? (int)player.moveInput.x : player.facingDir;
-
         anim.SetInteger("basicAttackIndex", comboIndex);
         ApplyAttackVelocity();
     }
 
-
+    /// <summary>ç»´æŒæ”»å‡»ä½ç§»ï¼›æ¥æ”¶è¿æ‹›é¢„è¾“å…¥ï¼›åŠ¨ç”»ç»“æŸæ—¶é€€å‡ºã€‚</summary>
     public override void Update()
     {
         base.Update();
+        if (IsActiveState == false) return;
         HandleAttackVelocity();
-
         if (input.Player.Attack.WasPressedThisFrame()) QueueNextAttack();
-
-        //¶¯»­²¥·Å½áÊø£¬´¥·¢ÊÂ¼ş
-        if (triggerCalled)
+        if (triggerCalled || stateTimer < 0)
         {
             HandleStateExit();
         }
-            
     }
 
+    /// <summary>ç¦»å¼€æ—¶è®°å½•æ—¶é—´å¹¶æ¨è¿›è¿æ‹›ç´¢å¼•ã€‚</summary>
     public override void Exit()
     {
         base.Exit();
@@ -62,36 +69,45 @@ public class Player_BasicAttackState : PlayerState
         comboIndex++;
     }
 
+    /// <summary>æœ‰é¢„è¾“å…¥åˆ™å»¶è¿Ÿå†è¿›æ”»å‡»æ€ï¼Œå¦åˆ™å›å¾…æœºã€‚</summary>
     private void HandleStateExit()
     {
         if (comboAttackQueued)
         {
-            //ÈËÎªµØÖÆÔìÁËÒ»¸ö¡°Ê±¼ä²î¡±£¬Ç¿ĞĞ¸ø Animator Áô³öÒ»Ö¡µÄÊ±¼äÈ¥¶ÁÈ¡ÄÇ¸ö false£¬È»ºóÔÙÇĞÈëĞÂ×´Ì¬°ÑËü±ä»Ø true
+            // å…ˆå…³æ‰å¸ƒå°”å†å»¶è¿Ÿè¿›å…¥ï¼Œé¿å… Animator åŒå¸§è¯»ä¸åˆ°åˆ‡æ¢
             anim.SetBool(animBoolName, false);
             player.EnterAttackStateWithDelay();
         }
         else stateMachine.ChangeState(player.idleState);
     }
 
+    /// <summary>æœªæ»¡è¿æ‹›ä¸Šé™æ—¶æ ‡è®°é¢„è¾“å…¥ã€‚</summary>
     private void QueueNextAttack()
     {
         if (comboIndex < comboLimit) comboAttackQueued = true;
     }
 
+    /// <summary>æ”»å‡»ä½ç§»ç»“æŸåæ°´å¹³é€Ÿåº¦å½’é›¶ã€‚</summary>
     private void HandleAttackVelocity()
     {
         attackVelocityTimer -= Time.deltaTime;
-
-        if(attackVelocityTimer < 0) player.SetVelocity(0, rb.linearVelocity.y);
+        if (attackVelocityTimer < 0) player.SetVelocity(0, rb.linearVelocity.y);
     }
 
+    /// <summary>æŒ‰å½“å‰æ®µæ–½åŠ æ”»å‡»ä½ç§»ã€‚</summary>
     private void ApplyAttackVelocity()
     {
+        if (player.attackVelocity == null || player.attackVelocity.Length == 0)
+        {
+            player.SetVelocity(0, rb.linearVelocity.y);
+            return;
+        }
         Vector2 attackVelocity = player.attackVelocity[comboIndex - 1];
         attackVelocityTimer = player.attackVelocityDuration;
         player.SetVelocity(attackVelocity.x * attackDir, attackVelocity.y);
     }
 
+    /// <summary>è¶…æ—¶æˆ–è¶Šç•Œæ—¶æŠŠè¿æ‹›é‡ç½®ä¸ºç¬¬ä¸€æ®µã€‚</summary>
     private void ResetComboIndexIfNeeded()
     {
         if (Time.time > lastTimeAttacked + player.comboResetTime) comboIndex = FirstComboIndex;

@@ -13,7 +13,6 @@ MonoBehaviour:
   m_Name: Skill data - Healiing wisp
   m_EditorClassIdentifier: 
   cost: 2
-  displayName: Healing wisp
-  description: When the echo dies from enemy attack, it releases a healing wisp that
-    moves toward you and heals on contact.
+  displayName: 治愈微光
+  description: 回响被敌人击破时释放治愈微光；微光会追随玩家，并在接触时恢复生命。
   icon: {fileID: -1830470593, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

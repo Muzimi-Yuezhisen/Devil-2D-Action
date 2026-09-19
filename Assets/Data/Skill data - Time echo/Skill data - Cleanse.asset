@@ -13,7 +13,6 @@ MonoBehaviour:
   m_Name: Skill data - Cleanse
   m_EditorClassIdentifier: 
   cost: 3
-  displayName: Cleanse
-  description: The healing wisp reduces the duration of negative status effects by
-    1 second.
+  displayName: 净化微光
+  description: 治愈微光使负面状态的持续时间减少 1 秒。
   icon: {fileID: 1893721086, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

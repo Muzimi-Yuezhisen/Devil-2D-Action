@@ -18,6 +18,6 @@ MonoBehaviour:
   upgradeData:
     upgradeType: 9
     cooldown: 3
-  displayName: Phantom Recall
-  description: You can press button again, to change places with shard you created.
+  displayName: 幻影回溯
+  description: 再次按下技能键，与自己创造的时光碎片交换位置。
   icon: {fileID: -195789106, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

@@ -28,9 +28,6 @@ MonoBehaviour:
       shockDuration: 3
       shockDamageScale: 1
       shockCharge: 0.4
-  displayName: Time shard
-  description: 'Create a shard filled with elemental magic.
-
-    The shard explodes
-    when touched by an enemy or time goes up.'
+  displayName: 时光碎片
+  description: 创造一枚蕴含元素魔力的碎片；接触敌人或持续时间结束时爆炸。
   icon: {fileID: 1779770775, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

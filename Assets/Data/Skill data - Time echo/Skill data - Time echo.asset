@@ -13,10 +13,6 @@ MonoBehaviour:
   m_Name: Skill data - Time echo
   m_EditorClassIdentifier: 
   cost: 1
-  displayName: Time echo
-  description: 'Create a time echo (clone) of yourself.
-
-    The echo distracts enemies.
-
-'
+  displayName: 时光回响
+  description: 创造自身的时光回响，吸引敌人的注意力。
   icon: {fileID: -7293604, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

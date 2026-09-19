@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!221 &22100000
+AnimatorOverrideController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: UnderworldBrute
+  m_Controller: {fileID: 9100000, guid: 2bf7e895c4e7eb84eb28511bc196304a, type: 2}
+  m_Clips:
+  - m_OriginalClip: {fileID: 7400000, guid: 19eae97fa99896e4d9edf8269c359b32, type: 2}
+    m_OverrideClip: {fileID: 7400000, guid: 6beb67438c2c6324c8da1d00bde4bbee, type: 2}
+  - m_OriginalClip: {fileID: 7400000, guid: 6b0582b558c496449a7d5bdf21496159, type: 2}
+    m_OverrideClip: {fileID: 7400000, guid: 000c608b98c985b46b2eb28c71130f51, type: 2}
+  - m_OriginalClip: {fileID: 7400000, guid: 4d110ceaf3b3f5446a36e7347c5ab53a, type: 2}
+    m_OverrideClip: {fileID: 7400000, guid: 174c9f3e0477e344f8a7224adc839e9e, type: 2}
+  - m_OriginalClip: {fileID: 7400000, guid: c1b609bde6f25c84699986aa40ca96b7, type: 2}
+    m_OverrideClip: {fileID: 7400000, guid: 10961a79fb27d0b45be47602216148c8, type: 2}

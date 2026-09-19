@@ -18,8 +18,6 @@ MonoBehaviour:
   upgradeData:
     upgradeType: 1
     cooldown: 3
-  displayName: Quick dash
-  description: 'Dash to avoid attacks.
-
-    You cannot take damage while dashing.'
+  displayName: 迅捷冲刺
+  description: 快速冲刺以躲避攻击，冲刺期间不会受到伤害。
   icon: {fileID: 900771226, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

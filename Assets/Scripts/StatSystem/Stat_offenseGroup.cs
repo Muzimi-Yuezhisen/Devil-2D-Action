@@ -1,19 +1,26 @@
 using System;
 using UnityEngine;
 
+/// <summary>
+/// ??????????????????????
+/// </summary>
 [Serializable]
 public class Stat_offenseGroup
 {
-    public Stat attackSpeed;//π•ÀŸ
-
-    //Physical damage
+    /// <summary>???????</summary>
+    public Stat attackSpeed;
+    /// <summary>???????</summary>
     public Stat damage;
+    /// <summary>??????????</summary>
     public Stat critPower;
+    /// <summary>?????????</summary>
     public Stat critChance;
-    public Stat armorReduction; //ŒÔ¿Ì¥©Õ∏
-
-    //Elemental damage
+    /// <summary>??????????</summary>
+    public Stat armorReduction;
+    /// <summary>?????</summary>
     public Stat fireDamage;
+    /// <summary>?????</summary>
     public Stat iceDamage;
+    /// <summary>?????</summary>
     public Stat lightningDamage;
 }

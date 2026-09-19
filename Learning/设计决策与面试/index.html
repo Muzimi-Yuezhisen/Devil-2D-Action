@@ -52,6 +52,7 @@
     <h2>本页</h2>
     <a href="#intro">怎么用</a>
     <a href="#glossary">技术名词详解</a>
+    <a href="#g-localization">· 中文字体与字符集</a>
     <a href="#g-fsm">· FSM</a>
     <a href="#g-animator">· Animator</a>
     <a href="#g-bt">· 行为树</a>
@@ -77,10 +78,10 @@
   <div class="back"><a href="../index.html">← Learning 总导航</a></div>
 
   <h1>设计决策：为什么这么做</h1>
-  <p class="subtitle">先把常见「其他做法」讲清楚（它是什么、怎么跑），再对照本项目为何没用。实现细节仍看课程模块 1–8。</p>
+  <p class="subtitle">先把常见「其他做法」讲清楚（它是什么、怎么跑），再对照本项目为何没用。实现细节仍看课程模块 1–9，本页补充本地化与字体机制。</p>
 
   <div class="module-nav">
-    <a href="../index.html">课程模块 1–8</a>
+    <a href="../index.html">课程模块 1–10</a>
     <a href="../设计决策与面试/index.html" class="current">设计决策</a>
     <a href="../Git版本管理/index.html">Git</a>
   </div>
@@ -96,6 +97,41 @@
   <section id="glossary">
     <h2>技术名词详解</h2>
     <p class="subtitle" style="margin-bottom:1.5rem;">下面不是背诵卡片，而是把「这套东西在电脑里到底怎么跑」讲开。后面各模块对比时，会默认你读过这里。</p>
+
+    <article id="g-localization" class="card">
+      <h3>中文字体与字符集：字体文件、字形图集、文本三者如何协作</h3>
+      <span class="tech">TextMeshPro</span>
+      <span class="tech">动态字体图集</span>
+      <span class="tech">字符集预热</span>
+
+      <h4>先分清三个概念</h4>
+      <ol>
+        <li><strong>字体文件（Font）</strong>：例如项目内置的 <code>NotoSansSC-Regular.otf</code>，里面保存的是汉字的轮廓和排版信息。它不是一张已经排好版的图片。</li>
+        <li><strong>TMP_FontAsset</strong>：TextMeshPro 使用的运行时字体资源。Unity 会把需要显示的字形栅格化，排进一张或多张纹理图集，再用网格渲染文字。</li>
+        <li><strong>字符集（Character Set）</strong>：告诉字体系统「哪些字符应该提前准备」。本项目的 <code>ChineseCommon3500.txt</code> 每行一个常用简体字，共 3500 个；它不是字体本身。</li>
+      </ol>
+
+      <h4>本项目的实际流程</h4>
+      <ol>
+        <li>场景加载前，<code>ChineseFontProvider</code> 先执行。</li>
+        <li>优先从 <code>Resources/Fonts</code> 加载内置 Noto Sans SC；如果资源不可用，再按顺序寻找系统中文字体作为后备。</li>
+        <li>调用 <code>TMP_FontAsset.CreateFontAsset</code> 创建动态 TMP 字体图集。动态模式允许图集在运行时增加字形，并支持多张 atlas。</li>
+        <li>读取 <code>ChineseCommon3500.txt</code>，去掉换行后调用 <code>TryAddCharacters</code>，把常用汉字在启动阶段预热进图集。</li>
+        <li>主菜单、战斗 HUD、技能树等运行时新建的 <code>TMP_Text</code>，以及场景中已有的 TMP 文本，统一把 <code>font</code> 指向这份字体资源。</li>
+        <li>如果以后出现字符集之外的生僻字，动态字体仍会按需补字；如果字体文件本身没有该字形，才会进入缺字处理。</li>
+      </ol>
+
+      <h4>为什么不把整个 Unicode 汉字区都预先塞进去？</h4>
+      <p>常用字预热解决了「第一次打开中文界面临时生成字形」的问题；整个 CJK 区有两万多个字符，会明显增加启动时间、纹理图集数量和内存。项目采用「3500 个常用字预热 + 其他字按需动态加入」的折中方案。对于角色名、任务文本等内容很多的正式产品，还可以按语言包拆分静态字体资产。</p>
+
+      <div class="alt">
+        <h4>面试时可以这样回答</h4>
+        <p class="how">「我把中文支持拆成字形来源和字符策略两层：Noto Sans SC 提供字形，TextMeshPro 在运行时生成动态字体图集；另外用 3500 常用汉字表启动预热，避免首次显示卡顿。UI 创建时统一注入同一份 TMP_FontAsset，生僻字再按需补入。这样比把全部汉字做成超大的静态图集更节省内存，也比依赖每台机器的系统字体更可控。」</p>
+        <p class="why-not"><strong>追问：</strong>如果出现方框，先查字体文件是否包含该字，再查 TMP 图集是否成功加入、字体是否真的注入到文本组件，最后检查多语言字体回退和字体授权。</p>
+      </div>
+
+      <p><strong>本项目协助实现的重点：</strong><code>ChineseFontProvider</code>、内置字体资源和 3500 字符集属于本轮加入的本地化基础设施；技能树、HUD 和菜单的中文文案则是对现有 UI 数据流的应用。</p>
+    </article>
 
     <article id="g-fsm" class="card">
       <h3>FSM（有限状态机，Finite State Machine）</h3>
@@ -424,7 +460,7 @@
     </div>
 
     <h3>现在有什么问题，以后可以怎么改</h3>
-    <p><strong>AttackData 继承 MonoBehaviour 为什么别扭。</strong>它在代码里是用 <code>new AttackData(...)</code> 造出来的数据包，从来不会挂到场景物体上，却继承了「组件」那一套基类。别人读代码时容易以为要用 <code>AddComponent</code>。改成普通的 class（或 struct）更合适，意思就是「一包伤害数据」，也不会有人给它写没用的 <code>Awake</code>。</p>
+    <p><strong>AttackData 的生命周期问题已经修复。</strong>它在代码里通过 <code>new AttackData(...)</code> 创建，是一次攻击的数据包，从来不会挂到场景物体上，因此不应该继承 MonoBehaviour。当前已改成普通可序列化 class，使类型语义与创建方式一致；若以后数据很小且需要明确值复制语义，也可以评估 readonly struct。</p>
     <p><strong>攻击范围形状以后怎么升级。</strong>现在用圆做检测，调起来快；但刀光是弯的、刺击是细长的时候，圆可能打到不该打的，或够不到该够的。改的时候不必重写整套结算：照样生成 AttackData，只把「怎么找出碰到的碰撞体」改成按动画帧切换的方盒、胶囊，或更贴合贴图的形状。可以先给每把武器配检测点，再进阶到「某一动画的某几帧用特殊形状」。</p>
     <p><strong>特效和事件。</strong>如果暴击时播错了特效，说明表现和战斗结算写在同一处，不好单独测。可以在「确认打中并算完伤害」之后发一个事件，飘字、音效、震屏去听这个事件；Combat 只负责「有没有打中、数字是多少」。这样加新反馈不用改伤害公式，Combat 脚本也不会越写越长。</p>
   </section>
@@ -591,7 +627,7 @@
     </div>
   </section>
 
-  <p class="footer">理解向 · 设计决策（含其他技术如何工作）· 实现见模块 1–8</p>
+  <p class="footer">理解向 · 设计决策（含其他技术如何工作）· 实现见模块 1–9；本页补充中文本地化</p>
 </main>
 </body>
 </html>

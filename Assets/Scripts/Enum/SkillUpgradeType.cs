@@ -1,17 +1,36 @@
 using UnityEngine;
-
+/// <summary>
+/// æŠ€èƒ½å‡çº§ç±»å‹ï¼Œç”¨äºæŠ€èƒ½æ ‘åˆ†æ”¯ä¸å¼ºåŒ–æ•ˆæœã€‚
+/// </summary>
 public enum SkillUpgradeType
 {
+    /// <summary>æ— å‡çº§ï¼ˆæœªè§£é”ï¼‰ã€‚</summary>
     None,
+    /// <summary>åŸºç¡€å†²åˆºã€‚</summary>
     Dash,
-    Dash_CloneOnStart,  //¿ªÊ¼Ê±´´½¨¿ËÂ¡
-    Dash_CloneOnStartAndArrival,    //¿ªÊ¼ºÍ½áÊøÊ±´´½¨¿ËÂ¡
-    Dash_ShardOnStart,  //³å´Ì¿ªÊ¼Ê±´´½¨ËéÆ¬
-    Dash_ShardOnStartAndArrival, //³å´Ì¿ªÊ¼ºÍ½áÊøÊ±´´½¨ËéÆ¬
+    /// <summary>å†²åˆºå¼€å§‹æ—¶åˆ›å»ºå…‹éš†ã€‚</summary>
+    Dash_CloneOnStart,
+    /// <summary>å†²åˆºå¼€å§‹å’Œç»“æŸæ—¶éƒ½åˆ›å»ºå…‹éš†ã€‚</summary>
+    Dash_CloneOnStartAndArrival,
+    /// <summary>å†²åˆºå¼€å§‹æ—¶åˆ›å»ºç¢ç‰‡ã€‚</summary>
+    Dash_ShardOnStart,
+    /// <summary>å†²åˆºå¼€å§‹å’Œç»“æŸæ—¶éƒ½åˆ›å»ºç¢ç‰‡ã€‚</summary>
+    Dash_ShardOnStartAndArrival,
 
-    Shard,  //ËéÆ¬ÔÚÓĞµĞÈË½Ó½ü/µ½Ê±¼ä»á²úÉú±¬Õ¨
-    Shard_MoveToEnemy,  //ËéÆ¬»á³¯×ÅµĞÈËÒÆ¶¯
-    Shard_Multicast,   //ËéÆ¬»áÓĞn´Î³äÄÜ
-    Shard_Teleport, //ºÍ×îºóÒ»¸ö´´½¨µÄËéÆ¬½»»»Î»ÖÃ
-    Shard_TeleportHpRewind,  //½»»»Î»ÖÃ£¬²¢ÇÒ¿ÉÒÔ»Ø¸´×´Ì¬µ½´´½¨ËéÆ¬µÄ×´Ì¬
+
+    /// <summary>åŸºç¡€ç¢ç‰‡ï¼šæ•Œäººé è¿‘æˆ–åˆ°æ—¶çˆ†ç‚¸ã€‚</summary>
+    Shard,
+    /// <summary>ç¢ç‰‡ä¼šæœæœ€è¿‘æ•Œäººç§»åŠ¨ã€‚</summary>
+    Shard_MoveToEnemy,
+    /// <summary>ç¢ç‰‡æ‹¥æœ‰å¤šæ¬¡å……èƒ½ã€‚</summary>
+    Shard_Multicast,
+    /// <summary>ä¸æœ€ååˆ›å»ºçš„ç¢ç‰‡äº¤æ¢ä½ç½®ã€‚</summary>
+    Shard_Teleport,
+    /// <summary>äº¤æ¢ä½ç½®ï¼Œå¹¶æŠŠç”Ÿå‘½å›å¤åˆ°åˆ›å»ºç¢ç‰‡æ—¶çš„æ¯”ä¾‹ã€‚</summary>
+    Shard_TeleportHpRewind,
+
+    SwordThrow, //You can throw sword to damage enemies from range
+    SwordThrow_Spin,    //Your sword will spin at one point and damage enemies. Like a chainsaw
+    SwordThrow_Pierce,  //Pierce sword will pierce N targets
+    SwordThrow_Bounce   //Bounce sword will bounce between enemies
 }

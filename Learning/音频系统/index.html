@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>音频系统 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+  <style>
+    .focus-tag { display:inline-block; color:#ffd27a; border:1px solid #9a6d25; background:rgba(154,109,37,.12); border-radius:999px; padding:.2rem .65rem; font-size:.76rem; font-weight:700; margin:0 .4rem .6rem 0; }
+    .focus-check { border-left:3px solid #9a6d25; background:rgba(154,109,37,.08); padding:.75rem 1rem; margin:.75rem 0 1rem; color:var(--muted); }
+    .chapter { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1.2rem 1.4rem; margin:1.4rem 0; }
+    .chapter h3 { margin-top:0; }
+    .two-col { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+    .mini { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.9rem 1rem; }
+    .mini h4 { margin-top:0; color:var(--accent2); }
+    details { background:var(--surface); border:1px solid var(--border); border-radius:8px; margin:.7rem 0; overflow:hidden; }
+    summary { cursor:pointer; padding:.85rem 1rem; font-weight:600; }
+    details .answer { border-top:1px solid var(--border); padding:.7rem 1rem; }
+    @media(max-width:760px){ .two-col{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+<nav>
+  <span class="mod-badge">模块 09 · 面试向</span>
+  <div class="section">
+    <h2>建立全局图</h2>
+    <a href="#intro">学习目标</a>
+    <a href="#architecture">整体架构</a>
+    <a href="#comparison">课程方案对比</a>
+  </div>
+  <div class="section">
+    <h2>六条关键链路</h2>
+    <a href="#lifecycle">1 生命周期</a>
+    <a href="#cue">2 AudioCue 解耦</a>
+    <a href="#music">3 BGM 淡化</a>
+    <a href="#pool">4 SFX 声源池</a>
+    <a href="#volume">5 音量持久化</a>
+    <a href="#wiring">6 战斗接入</a>
+  </div>
+  <div class="section">
+    <h2>交付与面试</h2>
+    <a href="#assets">素材与许可</a>
+    <a href="#verify">验证</a>
+    <a href="#questions">面试追问</a>
+    <a href="#pitch">60 秒介绍</a>
+    <a href="#self-test">自测</a>
+    <a href="../index.html">← 总导航</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../index.html">← Learning 总导航</a></div>
+  <h1>音频系统</h1>
+  <p class="subtitle">从业务事件到声音播放：让音乐、音效、音量设置和资源许可形成可解释、可验证的完整模块。</p>
+
+  <div class="module-nav">
+    <a href="../战斗系统/index.html">战斗系统</a>
+    <a href="../核心战斗闭环与稳定性/index.html">战斗闭环</a>
+    <a href="../音频系统/index.html" class="current">音频系统</a>
+    <a href="../设计决策与面试/index.html">设计决策</a>
+  </div>
+
+  <section id="intro">
+    <h2>学习目标</h2>
+    <span class="focus-tag">协助实现 · 重点掌握</span>
+    <div class="card highlight">
+      <p>不要只记住“调用 <code>Play()</code>”。你需要能回答：谁决定播放、业务层为什么不知道文件路径、场景重载为什么不会出现两个管理器、多个音效同时出现怎么办、暂停时淡化为何仍能推进，以及音量设置如何保存。</p>
+    </div>
+    <div class="focus-check"><strong>过关标准：</strong>关闭页面后，从“玩家攻击动画事件”开始，画出到 <code>AudioSource.Play()</code> 的完整调用链，并说出至少两个当前方案的局限。</div>
+  </section>
+
+  <section id="architecture">
+    <h2>整体架构</h2>
+    <div class="flow">业务事件
+  ├─ Entity_Combat.PerformAttack() ── 命中 / 挥空
+  ├─ Entity_Health.ReduceHealth()  ── 受伤 / 死亡
+  ├─ Player_DashState.Enter()      ── 冲刺
+  ├─ SkillObject_Shard.Explode()   ── 碎片爆炸
+  └─ CombatFlowController          ── 暂停 / 胜利 / 失败
+            │
+            ▼
+       AudioCue 枚举
+  （稳定的业务语义，不是文件名）
+            │
+            ▼
+       AudioManager
+  ├─ CueConfig：路径、音量、音高随机、是否空间化
+  ├─ Music_A + Music_B：交叉淡化
+  ├─ SFX_00...11：并发声源池
+  └─ PlayerPrefs：Master / Music / SFX / Mute
+            │
+            ▼
+  Resources 中的 CC0 OGG → AudioSource → AudioListener</div>
+    <table>
+      <thead><tr><th>层</th><th>职责</th><th>不应该知道</th></tr></thead>
+      <tbody>
+        <tr><td>Gameplay</td><td>决定发生了攻击、死亡或胜利</td><td>OGG 文件名、音量和声源数量</td></tr>
+        <tr><td>AudioCue</td><td>用枚举表达声音意图</td><td>声音怎样播放</td></tr>
+        <tr><td>AudioManager</td><td>查资源、选变体、分配声源、应用音量</td><td>攻击伤害如何计算</td></tr>
+        <tr><td>Unity Audio</td><td>导入、解码、混音并输出</td><td>胜负规则</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="comparison">
+    <h2>与课程压缩包方案的对比</h2>
+    <p>本地 <code>17 - Audio</code> 压缩包提供了 <code>AudioManager</code>、字符串数据库和双声源思路，但实际攻击/UI/BGM 素材没有包含在包内。本项目保留有价值的分组思想，并针对当前规模做了以下调整。</p>
+    <table>
+      <thead><tr><th>问题</th><th>课程参考</th><th>当前实现</th></tr></thead>
+      <tbody>
+        <tr><td>业务键</td><td><code>"player_attackHit"</code> 字符串</td><td><code>AudioCue.AttackHit</code>，重命名可由编译器检查</td></tr>
+        <tr><td>场景装配</td><td>Inspector 手工挂数据库和声源</td><td>运行前自动创建并从 Resources 构建配置</td></tr>
+        <tr><td>并发音效</td><td>依赖传入的单个 AudioSource</td><td>12 个声源的共享池</td></tr>
+        <tr><td>淡化时钟</td><td><code>Time.deltaTime</code></td><td><code>Time.unscaledDeltaTime</code>，暂停时仍能结束淡化</td></tr>
+        <tr><td>音量</td><td>单条目 maxVolume</td><td>Master / Music / SFX 分组并持久化</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="lifecycle" class="chapter">
+    <h3>链路 1：场景重载后为什么只有一个 AudioManager</h3>
+    <span class="focus-tag">重点掌握</span>
+    <pre><code>[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+private static void Bootstrap() =&gt; EnsureInstance();
+
+private void Awake()
+{
+    if (Instance != null &amp;&amp; Instance != this)
+    {
+        Destroy(gameObject);
+        return;
+    }
+    Instance = this;
+    DontDestroyOnLoad(gameObject);
+}</code></pre>
+    <p><code>BeforeSceneLoad</code> 保证业务对象开始工作前已有音频入口；<code>DontDestroyOnLoad</code> 让音乐和设置跨场景保留；重复检查避免某个场景手工放置管理器后产生双重播放。<code>SubsystemRegistration</code> 还会重置静态引用，兼容关闭 Domain Reload 的编辑器设置。</p>
+  </section>
+
+  <section id="cue" class="chapter">
+    <h3>链路 2：为什么业务层只传 AudioCue</h3>
+    <span class="focus-tag">重点掌握</span>
+    <pre><code>AudioManager.PlaySfxAt(
+    hitAnyTarget ? AudioCue.AttackHit : AudioCue.AttackSwing,
+    transform.position);</code></pre>
+    <p>攻击模块表达的是“命中”或“挥空”，而不是 <code>knifeSlice2.ogg</code>。素材更换、随机变体、默认音量和空间化策略都封装在管理器内。枚举相较字符串能避免拼写错误，并支持 IDE 查找引用。</p>
+    <div class="note"><strong>取舍：</strong>枚举适合当前固定规模。大型项目若要热更新或让音频设计师独立配置，可改成带稳定 ID 的 ScriptableObject Event/Cue 资产。</div>
+  </section>
+
+  <section id="music" class="chapter">
+    <h3>链路 3：两个音乐声源怎样交叉淡化</h3>
+    <span class="focus-tag">重点掌握</span>
+    <div class="flow">当前 Music_A 播放
+  → 下一曲交给 Music_B，初始音量 0
+  → 同一段协程中：A 逐渐到 0，B 逐渐到目标音量
+  → 停止并清空 A
+  → B 成为 activeMusicSource
+
+下一次切换反过来使用 A</div>
+    <p>淡化用 <code>Time.unscaledDeltaTime</code>，因为战斗暂停和胜负结算会把 <code>timeScale</code> 设为 0；若使用普通 <code>deltaTime</code>，暂停期间协程会永远停在当前进度。</p>
+  </section>
+
+  <section id="pool" class="chapter">
+    <h3>链路 4：为什么短音效使用声源池</h3>
+    <span class="focus-tag">重点掌握</span>
+    <p>攻击、受伤和爆炸可能在同一帧重叠。单个 AudioSource 会互相打断；每次创建 GameObject 又会产生生命周期和 GC 压力。系统启动时预建 12 个 AudioSource，播放时先找空闲声源；全部占用时轮转复用一个，保证资源上限可控。</p>
+    <div class="two-col">
+      <div class="mini"><h4>空间音效</h4><p>战斗音效设置 <code>spatialBlend = 1</code>，使用 3～18 米线性衰减，并把声源移动到事件发生位置。</p></div>
+      <div class="mini"><h4>全局音效</h4><p>UI、胜负等使用 <code>spatialBlend = 0</code>，不因玩家与世界坐标距离而听不见。</p></div>
+    </div>
+    <p>每个 Cue 还可配置小幅随机 Pitch，并避免连续选择同一个攻击变体，降低重复感。</p>
+  </section>
+
+  <section id="volume" class="chapter">
+    <h3>链路 5：音量设置怎样立即生效并跨启动保存</h3>
+    <span class="focus-tag">重点掌握</span>
+    <table>
+      <thead><tr><th>通道</th><th>应用位置</th><th>默认值</th></tr></thead>
+      <tbody>
+        <tr><td>Master</td><td><code>AudioListener.volume</code></td><td>100%</td></tr>
+        <tr><td>Music</td><td>音乐 Cue 音量 × Music</td><td>65%</td></tr>
+        <tr><td>SFX</td><td>音效 Cue 音量 × SFX</td><td>80%</td></tr>
+        <tr><td>Mute</td><td>临时把 Listener 输出置 0，保留三个滑杆值</td><td>关闭</td></tr>
+      </tbody>
+    </table>
+    <p>暂停/结算面板包含三个滑杆；<kbd>M</kbd> 切换静音。变化先写入内存并立即应用，再写入 <code>PlayerPrefs</code>；应用暂停或退出时统一 <code>Save</code>。</p>
+    <div class="note"><strong>局限：</strong>当前使用逻辑总线，没有 AudioMixer Snapshot、压缩器或滤波效果。需要战斗/菜单不同混音、低血量滤波或动态范围控制时，应升级为 AudioMixer 分组。</div>
+  </section>
+
+  <section id="wiring" class="chapter">
+    <h3>链路 6：当前接入了哪些游戏事件</h3>
+    <span class="focus-tag">重点掌握</span>
+    <table>
+      <thead><tr><th>事件</th><th>入口</th><th>Cue</th></tr></thead>
+      <tbody>
+        <tr><td>普攻命中/挥空</td><td><code>Entity_Combat.PerformAttack</code></td><td>AttackHit / AttackSwing</td></tr>
+        <tr><td>非致命受伤/死亡</td><td><code>Entity_Health</code></td><td>Hurt / Death</td></tr>
+        <tr><td>冲刺</td><td><code>Player_DashState.Enter</code></td><td>Dash</td></tr>
+        <tr><td>碎片爆炸</td><td><code>SkillObject_Shard.Explode</code></td><td>ShardExplosion</td></tr>
+        <tr><td>投剑</td><td><code>Skill_SwordThrow.ThrowSword</code></td><td>SwordThrow</td></tr>
+        <tr><td>技能树开关/节点点击</td><td><code>UI</code> / <code>UI_TreeNode</code></td><td>MenuOpen / MenuClose / UiClick</td></tr>
+        <tr><td>暂停/恢复/重开</td><td><code>CombatFlowController</code></td><td>MenuOpen / MenuClose / UiClick</td></tr>
+        <tr><td>胜利/失败</td><td><code>CombatFlowController.FinishCombat</code></td><td>Victory / Defeat</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="assets">
+    <h2>素材与许可</h2>
+    <p>本地课程文件夹仅找到 <code>Fire_Burning.mp3</code> 和缺少实际 Clip 的课程工程，因此没有把来源不明确的火焰文件用于当前成品。最终导入的是两套来源明确的 CC0 素材：</p>
+    <ul>
+      <li>Kenney「50 RPG sound effects」：筛选 13 个文件作为攻击、UI、技能和结算音效。</li>
+      <li>congusbongus「Cathedral in the forest」：暗色无缝环境 BGM。</li>
+    </ul>
+    <p>原始页面、许可、导入日期和 SHA-256 保存在 <code>Assets/Audio/README.md</code>。CC0 无署名要求，但保留清单可以证明素材可用于商业作品。</p>
+  </section>
+
+  <section id="verify">
+    <h2>验证证据</h2>
+    <div class="two-col">
+      <div class="mini"><h4>编译与导入</h4><p>Unity 6000.0.77f1 批处理导入 14 个 OGG，Assembly-CSharp 与 Editor Assembly 编译成功，无 C# 错误。</p></div>
+      <div class="mini"><h4>Play Mode Smoke</h4><p>验证 AudioManager 自动启动，遍历 13 个 AudioCue 确认资源存在，同时复测暂停、恢复、敌人死亡和胜利。</p></div>
+    </div>
+    <p>自动测试证明“资源能加载、调用链能启动”，但不能证明主观混音质量。仍需戴耳机试玩，检查响度、节奏、重复感和不同距离下的可听性。</p>
+  </section>
+
+  <section id="questions">
+    <h2>高频面试追问</h2>
+    <details><summary>1. 为什么 AudioManager 要跨场景存在？</summary><div class="answer">避免切场景时音乐硬切和设置丢失，也让所有场景共享同一播放入口。代价是它拥有跨场景生命周期，必须防重复实例并正确解绑 sceneLoaded 事件。</div></details>
+    <details><summary>2. 为什么不直接在每个角色上挂 AudioClip？</summary><div class="answer">那会让业务 Prefab 同时承担素材配置，替换声音时要改大量对象。AudioCue 把“发生什么”与“播哪个文件”分开，统一处理音量、变体和空间策略。</div></details>
+    <details><summary>3. PlayOneShot 不就能叠加吗，为什么还要池？</summary><div class="answer">同一 AudioSource 的 OneShot 能叠加，但难以分别设置每次播放的位置、Pitch、停止策略与并发优先级。池让每个活动声音有独立声源，同时保持固定对象数量。</div></details>
+    <details><summary>4. 12 个声源满了怎么办？</summary><div class="answer">当前按轮转复用，这是 Demo 级可预测降级。生产项目会给 Cue 增加优先级和并发上限，优先淘汰远处、较旧或低优先级声音，并保留 UI 和关键反馈。</div></details>
+    <details><summary>5. 为什么淡化使用 unscaledDeltaTime？</summary><div class="answer">暂停和结算会把 timeScale 设为 0，普通 deltaTime 也变成 0，音乐淡化无法完成。音频界面属于真实时间体验，因此使用不受游戏时间影响的 unscaledDeltaTime。</div></details>
+    <details><summary>6. Resources 有什么缺点？</summary><div class="answer">自动包含目录内全部资源，按字符串路径加载，规模扩大后不利于依赖分析和按包更新。当前只有少量固定 Cue，换来零场景配置；后续可迁移到 ScriptableObject Library + Addressables。</div></details>
+    <details><summary>7. 下一步如何升级？</summary><div class="answer">加入 AudioMixer 的 Music/SFX/UI 分组与 Snapshot；Cue 配置资产化；添加优先级、并发限制、对象跟随和音效冷却；对脚步按材质选择 Clip；用 LUFS 测量统一响度。</div></details>
+  </section>
+
+  <section id="pitch">
+    <h2>60 秒项目介绍模板</h2>
+    <div class="card highlight">
+      <p>“我为项目实现了一套跨场景音频系统。游戏逻辑不直接引用素材，而是发送 AudioCue，让 AudioManager 统一决定 Clip、随机变体、默认音量和空间化。管理器在场景加载前自动创建并用 DontDestroyOnLoad 保持唯一实例；音乐使用双 AudioSource 和 unscaledDeltaTime 做交叉淡化，短音效使用 12 个声源池支持并发。</p>
+      <p>系统提供 Master、Music、SFX 和静音控制，设置通过 PlayerPrefs 持久化。我把音效接到了攻击命中与挥空、受伤死亡、冲刺、两个技能、技能树、暂停和胜负流程。素材来自两套 CC0 资源，并记录了来源、许可和哈希。最后用 Unity Play Mode 冒烟测试逐个验证 AudioCue 能加载，同时复测战斗闭环。当前的主要演进方向是 AudioMixer Snapshot、Cue 资产化和声音优先级。”</p>
+    </div>
+  </section>
+
+  <section id="self-test">
+    <h2>自测：不看源码回答</h2>
+    <ol>
+      <li>从攻击动画事件开始，画出命中音效的调用链。</li>
+      <li>解释为什么场景重开后不会出现两个 AudioManager。</li>
+      <li>说出双音乐声源交叉淡化的四个步骤。</li>
+      <li>解释 SFX 池与每次 Instantiate 的取舍。</li>
+      <li>为什么暂停时必须用 unscaledDeltaTime？</li>
+      <li>Resources 方案在什么规模下应该被替换？</li>
+      <li>自动测试能证明什么，又不能证明什么？</li>
+    </ol>
+  </section>
+
+  <div class="prev-next">
+    <a href="../核心战斗闭环与稳定性/index.html">← 战斗闭环</a>
+    <a href="../设计决策与面试/index.html">设计决策 →</a>
+  </div>
+</main>
+</body>
+</html>

@@ -1,15 +1,20 @@
 using System;
 using UnityEngine;
 
+/// <summary>
+/// ?????????????????
+/// </summary>
 [Serializable]
 public class Stat_DefenseGroup
 {
-    //Physical defense
-    public Stat armor; //ª§º◊ºı√‚
-    public Stat evasion; //…¡±‹
-
-    //Elemental resistance
+    /// <summary>?????????</summary>
+    public Stat armor;
+    /// <summary>????</summary>
+    public Stat evasion;
+    /// <summary>???</summary>
     public Stat fireRes;
+    /// <summary>???</summary>
     public Stat iceRes;
+    /// <summary>???</summary>
     public Stat lightningRes;
 }

@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>核心战斗闭环与稳定性 · Devil 项目学习</title>
+  <link rel="stylesheet" href="../_assets/style.css">
+  <style>
+    .chapter {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin: 1.5rem 0;
+    }
+    .chapter h3 { margin-top: 0; color: var(--accent2); }
+    .chapter .goal {
+      color: var(--muted);
+      font-size: .9rem;
+      padding-bottom: .75rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px dashed var(--border);
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .mini {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .9rem 1rem;
+    }
+    .mini h4 { margin-top: 0; color: var(--accent2); }
+    .bad { border-left: 3px solid var(--danger); }
+    .good { border-left: 3px solid var(--accent2); }
+    .answer-frame {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: .45rem;
+      margin: 1rem 0;
+    }
+    .answer-frame div {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: .7rem;
+      font-size: .8rem;
+      color: var(--muted);
+    }
+    .answer-frame strong { color: var(--text); display: block; margin-bottom: .2rem; }
+    details {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin: .75rem 0;
+      overflow: hidden;
+    }
+    details[open] { border-color: #4a5d78; }
+    summary {
+      cursor: pointer;
+      padding: .85rem 1rem;
+      color: var(--text);
+      font-weight: 600;
+      list-style-position: inside;
+    }
+    details .answer {
+      padding: .2rem 1.1rem 1rem;
+      border-top: 1px solid var(--border);
+    }
+    details .answer p:first-child { margin-top: .75rem; }
+    .quick-table td:first-child { color: var(--warn); }
+    .truth {
+      border: 1px solid var(--purple);
+      background: rgba(188, 140, 255, .06);
+      border-radius: var(--radius);
+      padding: 1rem 1.2rem;
+      margin: 1rem 0;
+    }
+    .toc-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem .75rem;
+      margin: 1rem 0;
+    }
+    .toc-grid a {
+      display: block;
+      padding: .65rem .8rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: .88rem;
+    }
+    .toc-grid a:hover { border-color: var(--accent); }
+    .toc-grid small { display: block; color: var(--muted); margin-top: .15rem; }
+    .learning-legend {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: .75rem;
+      margin: 1rem 0;
+    }
+    .learning-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .learning-card p { margin-bottom: 0; color: var(--muted); font-size: .88rem; }
+    .learning-tag {
+      display: inline-block;
+      border: 1px solid;
+      border-radius: 999px;
+      padding: .2rem .65rem;
+      margin: 0 .35rem .55rem 0;
+      font-size: .75rem;
+      font-weight: 700;
+      vertical-align: middle;
+    }
+    .learn-review { color: #69d5ff; border-color: #277a9c; background: rgba(39, 122, 156, .12); }
+    .learn-focus { color: #ffd27a; border-color: #9a6d25; background: rgba(154, 109, 37, .12); }
+    .focus-check {
+      border-left: 3px solid #9a6d25;
+      background: rgba(154, 109, 37, .08);
+      padding: .75rem 1rem;
+      margin: .75rem 0 1rem;
+      color: var(--muted);
+    }
+    @media (max-width: 760px) {
+      .two-col, .toc-grid, .learning-legend { grid-template-columns: 1fr; }
+      .answer-frame { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <span class="mod-badge">实战复盘 · 面试向</span>
+  <div class="section">
+    <h2>先建立全局图</h2>
+    <a href="#intro">怎么学习</a>
+    <a href="#learning-map">学习重点标记</a>
+    <a href="#architecture">整体架构</a>
+    <a href="#answer">五步回答法</a>
+  </div>
+  <div class="section">
+    <h2>八条关键链路</h2>
+    <a href="#c1">1 自动启动</a>
+    <a href="#c2">2 死亡与胜负事件</a>
+    <a href="#c3">3 暂停与重开</a>
+    <a href="#c4">4 状态切换竞争</a>
+    <a href="#c5">5 可靠伤害管线</a>
+    <a href="#c6">6 技能生成物</a>
+    <a href="#c7">7 动画事件兜底</a>
+    <a href="#c8">8 Play Mode 测试</a>
+  </div>
+  <div class="section">
+    <h2>面试训练</h2>
+    <a href="#bugs">Bug 复盘表</a>
+    <a href="#questions">高频追问</a>
+    <a href="#limits">局限与演进</a>
+    <a href="#debug">现场排错</a>
+    <a href="#pitch">60 秒项目介绍</a>
+    <a href="../index.html">← 总导航</a>
+  </div>
+</nav>
+
+<main>
+  <div class="back"><a href="../index.html">← Learning 总导航</a></div>
+
+  <h1>核心战斗闭环与稳定性</h1>
+  <p class="subtitle">用这次真实改造回答三个问题：一局战斗怎样结束？“能编译”的代码为什么仍会出错？你如何向面试官证明修复真的有效？</p>
+
+  <div class="module-nav">
+    <a href="../数据流动与场景/index.html">数据流动与场景</a>
+    <a href="../战斗系统/index.html">战斗系统</a>
+    <a href="../有限状态机/index.html">有限状态机</a>
+    <a href="../核心战斗闭环与稳定性/index.html" class="current">战斗闭环</a>
+    <a href="../音频系统/index.html">音频系统</a>
+    <a href="../设计决策与面试/index.html">设计决策</a>
+  </div>
+
+  <section id="intro">
+    <h2>怎么学习这份材料</h2>
+    <div class="card highlight">
+      <p>不要把目标设成“背住每一行”。面试官真正想听的是：<strong>你遇到了什么问题、为什么会发生、如何划分职责、怎样验证，以及方案还有什么局限</strong>。</p>
+      <p>建议每学完一节就合上页面，用白纸画一次箭头；最后把“60 秒项目介绍”录音讲三遍。如果某个追问只能复述 API 名，说明还没消化。</p>
+    </div>
+
+    <div class="answer-frame">
+      <div><strong>1 问题</strong>玩家实际看到了什么故障？</div>
+      <div><strong>2 原因</strong>生命周期、数据或控制流哪里错了？</div>
+      <div><strong>3 方案</strong>职责放在哪个对象，数据怎样流？</div>
+      <div><strong>4 取舍</strong>为什么适合当前规模，有何代价？</div>
+      <div><strong>5 验证</strong>编译、Play Mode、边界条件怎么测？</div>
+    </div>
+  </section>
+
+  <section id="learning-map">
+    <h2>学习重点标记</h2>
+    <p>这些标签只服务于你的复习安排，面试话术仍按完整项目统一讲解。</p>
+    <div class="learning-legend">
+      <div class="learning-card">
+        <span class="learning-tag learn-review">你原有实现 · 常规复习</span>
+        <p>你已经搭好的系统主体：玩家/敌人状态机、基础战斗、属性与生命、元素状态、技能树、原有技能、动画和场景资源。复习目标是讲清设计动机和模块协作。</p>
+      </div>
+      <div class="learning-card">
+        <span class="learning-tag learn-focus">协助实现或修复 · 重点掌握</span>
+        <p>战斗流程与结算、自动验证，以及原系统中的稳定性补强。学习时必须做到：能画调用链、解释根因、说出取舍，并能脱离网页定位对应源码。</p>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>学习级别</th><th>内容</th><th>过关标准</th></tr></thead>
+      <tbody>
+        <tr><td><span class="learning-tag learn-review">常规复习</span></td><td>FSM、基础攻击/弹反、属性、生命、元素、技能树与原有技能</td><td>能从自己的设计目标讲到核心类职责</td></tr>
+        <tr><td><span class="learning-tag learn-focus">重点掌握</span></td><td>自动启动、胜负事件、暂停/重开、冒烟测试</td><td>能不看答案画出完整战斗闭环</td></tr>
+        <tr><td><span class="learning-tag learn-focus">重点掌握</span></td><td>状态切换竞争、伤害去重、百分比单位、生成物幂等、动画超时兜底</td><td>能回答“原 Bug、根因、改法、代价、测试”五项</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="architecture">
+    <h2>先画出整局战斗</h2>
+    <p>核心战斗闭环不是“能挥刀”，而是玩家能明确地进入、进行和离开一局战斗。当前场景的闭环由 <code>CombatFlowController</code> 负责协调，但它不亲自计算伤害。</p>
+
+    <div class="flow">SampleScene 载入
+  → RuntimeInitializeOnLoadMethod.AfterSceneLoad
+  → CombatFlowController.Bootstrap()
+      ├─ 找不到 Player：不创建（菜单场景安全）
+      └─ 已有 Controller：不重复创建
+  → Start()
+      ├─ 订阅 player.health.OnDied
+      ├─ 查找全部存活 Enemy_Health 并逐个订阅 OnDied
+      ├─ 记录 totalEnemies / trackedEnemies
+      └─ 构建目标与结算 UI
+
+战斗中
+  ├─ 玩家/敌人状态机：移动、攻击、弹反、死亡
+  ├─ Entity_Combat / SkillObject：检测并发起伤害
+  └─ Entity_Health：结算生命并在死亡时发布 OnDied
+
+事件汇合到 CombatFlowController
+  ├─ 玩家死亡 → Defeat
+  └─ 敌人死亡 → 从 trackedEnemies 移除
+                    └─ 剩余 0 → Victory
+
+Victory / Defeat
+  → Time.timeScale = 0
+  → 显示结算面板
+  → R / Enter → timeScale 恢复 → 重载当前场景</div>
+
+    <table>
+      <thead><tr><th>层</th><th>负责什么</th><th>不负责什么</th></tr></thead>
+      <tbody>
+        <tr><td>Flow</td><td><code>CombatFlowController</code> 统计目标、胜负、暂停、重开</td><td>不算攻击数字，不控制敌人 AI</td></tr>
+        <tr><td>Rules</td><td><code>Entity_Health</code> 判断死亡；<code>Entity_Stats</code> 算减伤</td><td>不直接打开胜利 UI</td></tr>
+        <tr><td>Action</td><td>玩家/敌人 FSM 决定当前行为</td><td>不保存整局结果</td></tr>
+        <tr><td>Presentation</td><td>Animator、VFX、运行时 Canvas 呈现反馈</td><td>不作为胜负的唯一真相来源</td></tr>
+        <tr><td>Verification</td><td><code>CombatPlayModeSmokeRunner</code> 自动走关键路径</td><td>不替代手感和视觉人工测试</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="answer">
+    <h2>面试回答的五步骨架</h2>
+    <div class="truth">
+      <p><strong>推荐说法：</strong>“原项目已有战斗动作，但一局没有明确出口，而且存在数个只在运行时暴露的问题。我把胜负协调从 Health 和 UI 中抽到流程控制器；Health 只发布死亡事件，流程层订阅并统计敌人。然后修复伤害幂等性、状态切换竞争和动画事件卡死，最后用 Unity Play Mode 冒烟测试验证暂停、死亡和胜利链路。”</p>
+    </div>
+    <p>这句话同时包含问题、架构、稳定性和验证，比“我写了一个 GameManager”信息量更大。下面八节就是把其中每一部分展开。</p>
+  </section>
+
+  <section id="c1" class="chapter">
+    <h3>链路 1：战斗流程为什么能自动启动</h3>
+    <span class="learning-tag learn-focus">协助新增 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>解释 Unity 的场景加载回调、为什么要防止重复创建，以及这种自动装配方式的适用范围。</div>
+    <p class="goal"><strong>场景：</strong>打开包含 Player 的场景，不手动挂组件，也能出现目标 UI 并开始统计敌人。</p>
+
+    <pre><code>[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+private static void Bootstrap()
+{
+    if (FindAnyObjectByType&lt;Player&gt;() == null ||
+        FindAnyObjectByType&lt;CombatFlowController&gt;() != null) return;
+
+    new GameObject(nameof(CombatFlowController))
+        .AddComponent&lt;CombatFlowController&gt;();
+}</code></pre>
+
+    <ol>
+      <li><code>AfterSceneLoad</code> 保证场景对象已经存在，能判断该场景是不是战斗场景。</li>
+      <li>用 Player 作为“战斗场景标记”；没有 Player 的菜单或工具场景不会创建。</li>
+      <li>先查现有控制器，保证 Bootstrap 幂等，避免重复订阅和重复 UI。</li>
+      <li><code>Start</code> 再订阅生命事件、收集敌人并构建 UI。</li>
+    </ol>
+
+    <div class="two-col">
+      <div class="mini good"><h4>当前收益</h4><p>零场景接线，适合只有一个主战斗场景的作品 Demo；漏挂 Manager 不会导致演示失败。</p></div>
+      <div class="mini bad"><h4>真实代价</h4><p>依赖运行时查找，关系不在 Inspector 显式可见。项目变大后，更适合场景 Prefab 或 Composition Root。</p></div>
+    </div>
+
+    <details>
+      <summary>面试追问：为什么不用单例 GameManager + DontDestroyOnLoad？</summary>
+      <div class="answer"><p>当前只有一个战斗场景，流程状态不需要跨场景长期存在。常驻单例会引入重进场景后的重复实例、事件残留和测试隔离问题。这里让控制器随场景创建和销毁更简单；以后有主菜单、多关卡和跨场景进度时，再引入明确的应用层服务，并区分“跨场景数据”和“单局战斗状态”。</p></div>
+    </details>
+  </section>
+
+  <section id="c2" class="chapter">
+    <h3>链路 2：死亡怎样变成胜利或失败</h3>
+    <span class="learning-tag learn-focus">基于原生命系统补强 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>从 <code>TakeDamage</code> 画到 <code>OnDied</code> 再到 Victory/Defeat，并解释实例事件和幂等保护。</div>
+    <p class="goal"><strong>场景：</strong>生命归零只发生一次；玩家死亡触发失败；最后一个敌人死亡触发胜利。</p>
+
+    <div class="flow">TakeDamage
+  → ReduceHealth(finalDamage)
+      ├─ 已死亡 / 非正伤害：return
+      ├─ currentHealth = Max(0, currentHealth - damage)
+      └─ currentHealth &lt;= 0 → Die()
+           ├─ isDead 再次防重入
+           ├─ isDead = true
+           ├─ CancelInvoke(RegenerateHealth)
+           ├─ entity.EntityDeath()    // 先进入死亡表现/状态
+           └─ OnDied?.Invoke(this)    // 再通知外部流程
+
+CombatFlowController
+  ├─ HandlePlayerDied → FinishCombat(Defeat)
+  └─ HandleEnemyDied
+       ├─ Remove 返回 false：说明已处理，直接 return
+       ├─ 取消该敌人的订阅
+       ├─ defeatedEnemies++
+       └─ trackedEnemies.Count == 0 → FinishCombat(Victory)</div>
+
+    <h4>为什么用事件，而不是 Health 直接调用 GameFlow？</h4>
+    <p><code>Entity_Health</code> 的职责是生命规则，它也可能被玩家、敌人或其他可破坏实体复用。如果它直接找 UI、弹胜利面板，就同时依赖战斗规则和表现层。实例事件表达的是：“这个生命组件死了，感兴趣的人自己响应。”流程控制器、掉落、任务和音频以后都能分别订阅。</p>
+
+    <h4>为什么是实例事件，而不是 static 事件？</h4>
+    <p>实例事件天然绑定到具体 Health。控制器只订阅当前场景收集到的对象，销毁时可逐个解绑。静态事件虽然订阅方便，但跨场景残留订阅者更容易造成重复回调或引用已销毁对象。</p>
+
+    <details>
+      <summary>面试追问：这里的“幂等”是什么意思？</summary>
+      <div class="answer"><p>同一结果被重复触发时，系统仍只产生一次有效状态变化。<code>Die</code> 用 <code>isDead</code> 防重入，流程层又用 <code>trackedEnemies.Remove(enemyHealth)</code> 的返回值防止同一敌人重复计数。两个边界各自保护，避免同一帧多次伤害、协程跳伤或重复碰撞让击杀数增加两次。</p></div>
+    </details>
+  </section>
+
+  <section id="c3" class="chapter">
+    <h3>链路 3：暂停、结算和重开</h3>
+    <span class="learning-tag learn-focus">协助新增 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>解释流程状态为何限制 Pause/Resume，以及重载场景前为什么必须恢复 <code>timeScale</code>。</div>
+    <p class="goal"><strong>场景：</strong>Esc 可以暂停/继续；胜负后冻结世界；R 或 Enter 重新加载当前场景。</p>
+
+    <ul>
+      <li><code>CombatState</code> 明确区分 Running、Paused、Victory、Defeat，避免多个布尔组合。</li>
+      <li>只有 Running 能进入 Pause；只有 Paused 能 Resume；胜负状态不会被 Esc 误恢复。</li>
+      <li><code>Time.timeScale = 0</code> 冻结物理和使用缩放时间的协程，但 Input System 的按键仍可在 Update 中读取。</li>
+      <li>重载场景前必须先恢复 <code>timeScale = 1</code>；<code>OnDestroy</code> 也再兜底，否则新场景可能永远冻结。</li>
+      <li>场景在 Build Settings 中时按 buildIndex 重载；编辑器临时场景没有有效 index 时回退到场景名。</li>
+    </ul>
+
+    <div class="note danger"><strong>容易踩坑：</strong>暂停后使用 <code>WaitForSeconds</code> 做“延时显示菜单”，它也会被 timeScale 冻住。需要暂停期间继续计时的逻辑，应使用 <code>WaitForSecondsRealtime</code> 或 unscaledDeltaTime。</div>
+
+    <details>
+      <summary>面试追问：Time.timeScale = 0 就是完整暂停系统吗？</summary>
+      <div class="answer"><p>不是。它是当前 Demo 的最小实现。正式项目还要决定音频是否暂停、粒子和 Animator 用哪种 Update Mode、网络是否继续、输入 Action Map 如何切换，以及多个系统谁有权修改 timeScale。更稳的做法是集中式 PauseService，用事件通知各子系统，而不是大家各自写 timeScale。</p></div>
+    </details>
+  </section>
+
+  <section id="c4" class="chapter">
+    <h3>链路 4：状态切换后，旧代码为什么还会继续跑</h3>
+    <span class="learning-tag learn-focus">基于原状态机修复 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>说明 <code>ChangeState</code> 是普通方法调用，不会自动中止旧状态当前帧的 <code>Update</code>。</div>
+    <p class="goal"><strong>故障：</strong>同一帧可能先从 Ground 切到 Jump，又继续读 Attack，把新状态覆盖；敌人超时回 Idle 后又继续追击或攻击。</p>
+
+    <div class="two-col">
+      <div class="mini bad">
+        <h4>错误直觉</h4>
+        <pre><code>if (jump) ChangeState(jumpState);
+if (attack) ChangeState(attackState);</code></pre>
+        <p>很多人以为第一次 ChangeState 会自动结束当前 Update。实际上它只是普通方法调用，返回后下一行仍会执行。</p>
+      </div>
+      <div class="mini good">
+        <h4>当前保护</h4>
+        <pre><code>base.Update();
+if (IsActiveState == false) return;
+
+if (jump)
+{
+    ChangeState(jumpState);
+    return;
+}</code></pre>
+        <p>基类可能已经切状态，所以派生类先验证自己仍是当前状态；每次成功切换后立即 return。</p>
+      </div>
+    </div>
+
+    <p><code>EntityState.IsActiveState</code> 本质上比较 <code>stateMachine.currentState == this</code>。它解决的是“旧状态方法栈还没返回”的控制流问题，不是多线程锁；Unity 主线程里这里通常没有真正的数据竞争。</p>
+
+    <h4>同一个状态需要重新进入：连击为什么不能用 ChangeState</h4>
+    <div class="two-col">
+      <div class="mini bad"><pre><code>// 当前已经是 basicAttackState
+ChangeState(basicAttackState); // 返回 false</code></pre><p>普通切换会拒绝目标等于当前状态。第一段虽已收到预输入，却没有执行 Exit/Enter，第二、三段就不会初始化。</p></div>
+      <div class="mini good"><pre><code>yield return new WaitForEndOfFrame();
+ReenterState(basicAttackState);</code></pre><p>专用重入 API 保留普通切换的防重复语义，同时让连击明确执行一次 Exit/Enter，推进 comboIndex 并重新设置动画参数。</p></div>
+    </div>
+
+    <details>
+      <summary>面试追问：为什么不在 StateMachine 内保证每帧只能切一次？</summary>
+      <div class="answer"><p>可以做 transition lock，但会改变语义。例如 WallJump 的 Enter 当前会立即再切到 Fall，属于合法的嵌套切换；全局“一帧一次”可能拦住它。当前方案把“切换后是否继续”留给发起状态，改动小且语义清晰。系统更复杂时，可以让 ChangeState 返回结果、集中排队 transition，或建立带优先级的状态请求。</p></div>
+    </details>
+  </section>
+
+  <section id="c5" class="chapter">
+    <h3>链路 5：一次命中怎样保证只结算一次</h3>
+    <span class="learning-tag learn-focus">基于原战斗系统修复 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>解释多 Collider 去重、<code>TakeDamage</code> 返回值门禁，以及百分数配置到运行时小数的单位转换。</div>
+    <p class="goal"><strong>故障：</strong>一个敌人有多个 Collider 时，一次 Overlap 可能返回多个碰撞体；闪避后仍可能挂 Debuff；普通与暴击 VFX 选反。</p>
+
+    <div class="flow">OverlapCircleAll
+  → 对每个 Collider：GetComponentInParent&lt;IDamagable&gt;()
+  → HashSet&lt;IDamagable&gt;.Add
+      ├─ false：同一受伤对象的另一个 Collider，跳过
+      └─ true：首次出现，继续
+  → AttackData = stats.GetAttackData(scale)
+  → targetGotHit = TakeDamage(...)
+      ├─ false（死亡 / 闪避）：不挂状态，不播命中特效
+      └─ true：ApplyStatusEffect + CreateOnHitVFX
+  → isCrit ? critHitVFX : hitVFX</div>
+
+    <h4>三个可复用的设计点</h4>
+    <ul>
+      <li><strong>按逻辑对象去重，而不是按 Collider 去重：</strong>Collider 是检测形状，<code>IDamagable</code> 才是受伤主体。</li>
+      <li><strong><code>TakeDamage</code> 返回 bool：</strong>它像一次小型事务结果，告诉调用者“这次命中是否真正成立”，下游表现只在成功时执行。</li>
+      <li><strong>组件从父级查找：</strong>碰撞体常在角色子节点，Health/Status 通常在根节点，<code>GetComponentInParent</code> 更符合 Prefab 结构。</li>
+    </ul>
+
+    <h4>数值修复：75% 为什么曾经只剩 0.75%</h4>
+    <p>属性面板使用百分数单位。正确写法是 <code>Clamp(resistance, 0, 75) / 100</code>，结果范围为 0～0.75。旧式 <code>Clamp(..., 0, 0.75) / 100</code> 会得到最多 0.0075，也就是最多减伤 0.75%。面试时要主动说清“配置单位”和“运行时小数”的边界。</p>
+
+    <details>
+      <summary>面试追问：HashSet 每次攻击 new 一次，会不会产生 GC？</summary>
+      <div class="answer"><p>会有小分配，但当前同屏目标少、攻击频率低，正确性优先。进入性能优化阶段后，可以复用 HashSet、使用 <code>OverlapCircleNonAlloc</code> / ContactFilter2D，或让目标维护稳定 ID。但优化前要先用 Profiler 证明这是热点，不能为了理论上的零 GC 牺牲清晰度。</p></div>
+    </details>
+  </section>
+
+  <section id="c6" class="chapter">
+    <h3>链路 6：技能生成物如何携带“谁造成的伤害”</h3>
+    <span class="learning-tag learn-focus">基于原技能系统修复 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>区分生成物、伤害拥有者和倍率数据，并说明为什么爆炸入口需要幂等。</div>
+    <p class="goal"><strong>场景：</strong>碎片或飞剑碰到敌人时，伤害使用玩家属性和穿甲；一次碎片不会因定时器与碰撞同时到达而爆炸两次。</p>
+
+    <p><code>SkillObject_Base</code> 同时保存三类运行时上下文：</p>
+    <table>
+      <thead><tr><th>字段</th><th>含义</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>playerStats</td><td>伤害拥有者的属性</td><td>计算物理、元素、暴击</td></tr>
+        <tr><td>damageScaleData</td><td>本技能分支的倍率</td><td>区分普攻、普通剑、分支技能</td></tr>
+        <tr><td>damageDealer</td><td>真正的释放者 Transform</td><td>让 TakeDamage 找到玩家穿甲，并确定击退来源</td></tr>
+      </tbody>
+    </table>
+
+    <p>碎片还有 <code>hasExploded</code>。进入 <code>Explode</code> 后立即置 true 并 <code>CancelInvoke</code>：无论是碰撞先到、定时先到，还是两个事件同帧到达，后续调用都会直接返回。这是典型的一次性对象幂等保护。</p>
+
+    <p>投剑成功实例化并完成 Setup 后才调用 <code>SetSkillOnCooldown</code>；如果 Prefab 缺失或没有 <code>SkillObject_Sword</code>，销毁错误实例并退出，不错误消耗冷却。反弹剑选择下一目标前检查候选数量，避免空列表随机下标。</p>
+
+    <details>
+      <summary>面试追问：为什么 AttackData 应该是普通 class，而不是 MonoBehaviour？</summary>
+      <div class="answer"><p><code>AttackData</code> 是一次攻击的短生命周期数据包，通过构造函数 <code>new AttackData(...)</code> 创建，不需要 GameObject、Transform 或 Unity 生命周期。继承 MonoBehaviour 会让语义错误，Unity 也不支持把组件当普通对象 new。改为可序列化普通 class 后，职责和创建方式一致；如果数据足够小且复制语义明确，也可以讨论 readonly struct。</p></div>
+    </details>
+  </section>
+
+  <section id="c7" class="chapter">
+    <h3>链路 7：动画事件丢失时，为什么角色不能永远卡住</h3>
+    <span class="learning-tag learn-focus">基于原动画状态修复 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>说明动画事件是正常路径、计时器是恢复路径，以及为何超时不能盲目补发伤害。</div>
+    <p class="goal"><strong>故障：</strong>攻击动画忘挂 CurrentStateTrigger、动画被替换或过渡条件错误时，Attack/Counter/JumpAttack 可能永远无法退出。</p>
+
+    <p>当前策略是“双通道结束”：</p>
+    <div class="flow">正常通道：Animation Event → CurrentStateAnimationTrigger → triggerCalled = true
+兜底通道：Enter 时设置 stateTimer → Update 中倒计时到 0
+
+if (triggerCalled || stateTimer &lt; 0)
+    ChangeState(nextState);</div>
+
+    <p>动画事件仍是首选，因为它能把逻辑结束点对齐到具体帧；计时器只是保证系统可恢复。超时时长按攻速缩放，避免高攻速动画结束了还长时间锁住。</p>
+
+    <div class="note"><strong>边界：</strong>这里没有在超时路径补发 <code>AttackTrigger</code>。若动画伤害事件缺失，宁可这次不出伤，也不要在不知道动画事件是否已执行的情况下重复伤害。退出卡死和补发伤害是两个不同问题。</div>
+
+    <details>
+      <summary>面试追问：更正式的做法是什么？</summary>
+      <div class="answer"><p>可以把攻击动作做成配置化时间轴：明确前摇、命中帧、后摇和可取消窗口；或者用 StateMachineBehaviour / Playables 发强类型事件。还可以在编辑器验证工具里扫描所有攻击 Clip 是否包含规定事件。当前方案适合小型 Demo，核心目标是避免坏配置让整局无法继续。</p></div>
+    </details>
+  </section>
+
+  <section id="c8" class="chapter">
+    <h3>链路 8：如何证明“不是只编译通过”</h3>
+    <span class="learning-tag learn-focus">协助新增 · 重点掌握</span>
+    <div class="focus-check"><strong>必须会：</strong>区分编译验证、Play Mode 集成冒烟测试和人工手感测试分别能证明什么。</div>
+    <p class="goal"><strong>验证：</strong>Unity C# 构建成功后，再进入真实 Play Mode 走关键路径。</p>
+
+    <div class="flow">CombatPlayModeSmokeRunner.Run
+  → 打开 SampleScene
+  → 进入 Play Mode
+  → 等待 2 秒，让 Awake / OnEnable / Start / 首帧 Update 完成
+  → 断言 Player 存在且 Health 已初始化
+  → 断言 CombatFlowController 自动创建
+  → 断言场景至少有一个 Enemy_Health
+  → PauseCombat：断言 timeScale == 0
+  → ResumeCombat：断言 timeScale == 1
+  → 对敌人施加 MaxHealth + 1 的伤害
+  → 断言 enemy.isDead
+  → 断言最终敌人死亡后 timeScale == 0（胜利已触发）
+  → 捕获 Error / Exception / Assert 日志
+  → 退出 Play Mode，不保存运行时变化</div>
+
+    <p>测试可从 Unity 菜单 <code>Tools → Devil → Run Combat Smoke Test</code> 重复运行，也可在命令行用 <code>-executeMethod CombatPlayModeSmokeRunner.Run</code> 执行。</p>
+
+    <div class="two-col">
+      <div class="mini good"><h4>它能证明</h4><p>脚本能编译；生命周期能启动；必要对象与引用存在；暂停可恢复；致命伤害、死亡事件、敌人计数和胜利链路连通；运行时没有 Error/Exception。</p></div>
+      <div class="mini bad"><h4>它不能证明</h4><p>玩家输入手感、动画命中帧准确、UI 美术效果、所有技能分支、失败后重开、性能和不同分辨率表现。仍需专项测试和人工试玩。</p></div>
+    </div>
+
+    <details>
+      <summary>面试追问：为什么叫 Smoke Test，不叫完整自动化测试？</summary>
+      <div class="answer"><p>冒烟测试只快速确认最关键路径“系统能冒烟但不着火”，覆盖面刻意有限。它偏集成测试：真实打开场景并让多个组件一起运行。完整测试还应拆出数值单元测试、每个状态的行为测试、技能参数化测试，以及构建后的玩家包测试。</p></div>
+    </details>
+  </section>
+
+  <section id="bugs">
+    <h2>本次 Bug 复盘表</h2>
+    <table class="quick-table">
+      <thead><tr><th>现象</th><th>根因</th><th>修复</th><th>面试关键词</th></tr></thead>
+      <tbody>
+        <tr><td>AttackData 运行时不合理</td><td>MonoBehaviour 却用 new 创建</td><td>改为普通可序列化 class</td><td>对象生命周期、数据对象</td></tr>
+        <tr><td>一次攻击多次扣血</td><td>一个实体多个 Collider</td><td>按 IDamagable 用 HashSet 去重</td><td>物理形状 vs 逻辑实体</td></tr>
+        <tr><td>闪避仍挂 Debuff</td><td>下游没看 TakeDamage 结果</td><td>仅命中成功才状态/VFX</td><td>返回值表达业务结果</td></tr>
+        <tr><td>暴击特效显示反了</td><td>三元表达式 Prefab 顺序反</td><td><code>isCrit ? critHitVFX : hitVFX</code></td><td>表现与规则对齐</td></tr>
+        <tr><td>75% 抗性几乎无效</td><td>百分数与小数混用</td><td>先 Clamp 0～75，再除 100</td><td>单位边界</td></tr>
+        <tr><td>连续击退提前解锁</td><td>启动协程但没保存句柄</td><td>把 StartCoroutine 返回值赋给字段</td><td>协程所有权</td></tr>
+        <tr><td>碎片可能炸两次</td><td>Invoke 与碰撞竞争</td><td>hasExploded + CancelInvoke</td><td>幂等、重入保护</td></tr>
+        <tr><td>状态偶发覆盖</td><td>ChangeState 后旧 Update 继续</td><td>IsActiveState + return</td><td>控制流竞争</td></tr>
+        <tr><td>第一段攻击后无法连击</td><td>ChangeState 拒绝切到当前 basicAttackState</td><td>WaitForEndOfFrame + ReenterState</td><td>状态重入、API 语义</td></tr>
+        <tr><td>攻击状态永久卡住</td><td>完全依赖动画事件</td><td>动画事件 + 超时恢复</td><td>容错、fail-safe</td></tr>
+        <tr><td>投剑无冷却</td><td>创建后没有记录 lastTimeUsed</td><td>Setup 成功后开始冷却</td><td>事务提交点</td></tr>
+        <tr><td>技能树导入刷 Error</td><td>OnValidate 内改层级触发 SendMessage</td><td>EditorApplication.delayCall 延迟</td><td>编辑器生命周期</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="questions">
+    <h2>高频面试追问</h2>
+    <p>先自己回答，再展开。每题尽量在 40～90 秒内讲完。</p>
+
+    <details>
+      <summary>1. 你在这个项目里怎样定义“核心战斗闭环”？</summary>
+      <div class="answer"><p>玩家进入战斗后有明确目标，战斗规则能产生死亡，系统能区分玩家死亡和敌人全部死亡，给出失败或胜利反馈，并允许暂停、恢复和重开。移动和攻击只是循环中段；没有结算与重开，体验仍是功能沙盒。</p></div>
+    </details>
+
+    <details>
+      <summary>2. CombatFlowController 会不会是一个新的上帝类？</summary>
+      <div class="answer"><p>目前它只协调单局流程和生成最小 UI，没有计算伤害或控制角色行为，职责边界还清晰。但运行时创建 UI 已经让它同时承担部分表现职责。项目扩大时我会拆成 CombatSession（规则/状态）、CombatHUD（表现）和 SceneFlow（加载），由场景入口装配。</p></div>
+    </details>
+
+    <details>
+      <summary>3. 为什么死亡事件在 EntityDeath 之后发布？</summary>
+      <div class="answer"><p>先让实体完成自己的死亡状态切换、关闭碰撞或输入，再通知外部结算，订阅者看到的是一致的“已经死亡”状态。若先发事件，流程层可能立即 timeScale=0，让实体还没完成死亡清理。当前顺序减少半完成状态。</p></div>
+    </details>
+
+    <details>
+      <summary>4. 为什么不用每帧 FindObjectsOfType 检查敌人数？</summary>
+      <div class="answer"><p>每帧全场扫描浪费开销，也把“什么时候死亡”变成轮询。当前在 Start 收集一次，随后由事件增量更新，复杂度和意图更清晰。代价是运行时新生成敌人不会自动加入，后续应提供 RegisterEnemy/UnregisterEnemy 或由 SpawnManager 发布生成事件。</p></div>
+    </details>
+
+    <details>
+      <summary>5. 如何处理一个敌人多个碰撞体造成的重复攻击？</summary>
+      <div class="answer"><p>Overlap 返回的是 Collider，不是逻辑角色。我向父级找 IDamagable，并在单次攻击局部 HashSet 中按受伤组件去重。这样头部、身体、脚部碰撞体仍只扣一次。若以后做部位伤害，则应把 Hitbox 显式映射到 HurtboxOwner 和倍率，而不是简单去重。</p></div>
+    </details>
+
+    <details>
+      <summary>6. 动画事件适合做攻击伤害吗？</summary>
+      <div class="answer"><p>对小型动作 Demo 很合适，能直观看到命中帧，动画和逻辑同步。但字符串方法名、Clip 配置和状态退出强耦合，替换动画容易漏事件。因此我保留事件作为命中和正常结束点，同时给状态退出加超时兜底；更大项目会加编辑器校验或数据化攻击时间轴。</p></div>
+    </details>
+
+    <details>
+      <summary>7. 为什么编译通过仍不能说明系统正确？</summary>
+      <div class="answer"><p>编译器只验证类型和语法。MonoBehaviour 用 new、引用在 Start 才为空、一个角色多个 Collider、OnValidate 生命周期限制、事件顺序和 timeScale 都是运行时或编辑器行为问题。因此验证分层：先批处理编译，再真实 Play Mode 集成测试，最后人工检查手感和表现。</p></div>
+    </details>
+
+    <details>
+      <summary>8. 你会怎样继续扩展成任务或存档系统？</summary>
+      <div class="answer"><p>不会让任务或存档直接读取 HUD 文本，而是订阅稳定的领域事件，例如 EnemyDied、CombatCompleted。存档保存可序列化状态，例如关卡 ID、已完成战斗、玩家位置和技能解锁；加载后由系统恢复状态。流程控制器的 Victory 可以发布 CombatCompleted，任务系统消费它，保持单向依赖。</p></div>
+    </details>
+
+    <details>
+      <summary>9. 你在修复中最看重什么工程原则？</summary>
+      <div class="answer"><p>第一是单一真相：死亡由 Health 判定，胜负由流程层判定。第二是幂等：Die、Explode、敌人计数都能抗重复触发。第三是失败可恢复：动画事件缺失不让状态永久卡死。第四是可验证：不是只手点一次，而是保留可重复的 Play Mode 冒烟测试。</p></div>
+    </details>
+
+    <details>
+      <summary>10. 如果面试官问“这些代码有什么不足”，怎么回答？</summary>
+      <div class="answer"><p>主动指出真实边界：敌人只在 Start 收集，不覆盖后续 Spawn；运行时生成 UI 方便 Demo 但不利于美术迭代和本地化；timeScale 是全局状态，缺少统一所有权；Smoke Test 没模拟真实输入和动画命中帧。然后给出按项目规模演进的方案，而不是声称已经生产级。</p></div>
+    </details>
+  </section>
+
+  <section id="limits">
+    <h2>当前局限与下一步演进</h2>
+    <table>
+      <thead><tr><th>当前做法</th><th>何时不够</th><th>演进方向</th></tr></thead>
+      <tbody>
+        <tr><td>Start 时扫描敌人</td><td>刷怪、波次、对象池</td><td>公开 Register/Unregister；SpawnManager 接入</td></tr>
+        <tr><td>运行时代码生成 HUD</td><td>美术频繁迭代、多语言、动画</td><td>HUD Prefab + Presenter；文本走本地化表</td></tr>
+        <tr><td>直接设置 timeScale</td><td>多个菜单、慢动作、过场同时控制时间</td><td>Pause/Time Service，基于请求栈或令牌</td></tr>
+        <tr><td>FindAnyObjectByType</td><td>多场景叠加、多个玩家、测试隔离</td><td>场景 Composition Root 或依赖注入</td></tr>
+        <tr><td>本地 Action 事件</td><td>跨系统事件很多、需要记录回放</td><td>强类型 Event Bus，但避免无边界全局总线</td></tr>
+        <tr><td>状态超时常量</td><td>大量武器与动画速度不同</td><td>动作数据资产提供时长/窗口；Clip 校验工具</td></tr>
+        <tr><td>单条 Smoke Test</td><td>多技能、多关卡、持续集成</td><td>EditMode 数值测试 + PlayMode 参数化场景 + Build Test</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="debug">
+    <h2>现场排错：面试官让你定位怎么办</h2>
+    <table class="quick-table">
+      <thead><tr><th>症状</th><th>第一观察点</th><th>继续检查</th></tr></thead>
+      <tbody>
+        <tr><td>杀完怪不胜利</td><td><code>HandleEnemyDied</code> 是否被调用</td><td>是否订阅、敌人是否运行时 Spawn、Remove 是否返回 false</td></tr>
+        <tr><td>一刀扣多次血</td><td>Overlap 返回多少 Collider</td><td>HashSet 的 key 是否真的是根 Health/IDamagable</td></tr>
+        <tr><td>闪避后仍着火</td><td><code>TakeDamage</code> 返回值</td><td>ApplyStatus 是否放在 targetGotHit 条件内</td></tr>
+        <tr><td>攻击后不能动</td><td>当前 FSM state 与 triggerCalled</td><td>Clip 事件、Animator 参数、stateTimer 是否设置</td></tr>
+        <tr><td>重开后仍暂停</td><td><code>Time.timeScale</code></td><td>LoadScene 前和 OnDestroy 是否恢复为 1</td></tr>
+        <tr><td>技能伤害没穿甲</td><td>damageDealer 指向谁</td><td>能否在父级找到玩家 Entity_Stats</td></tr>
+        <tr><td>场景打开刷 Console</td><td>堆栈是否来自 OnValidate</td><td>是否在校验回调中改 Transform/Hierarchy</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note"><strong>排错顺序：</strong>先复现并固定输入 → 看 Console 第一条异常 → 确认当前状态和关键引用 → 沿事件/调用链设置断点 → 检查 Layer/Collider/Animator 配置 → 最后才怀疑“Unity 随机出 Bug”。</div>
+  </section>
+
+  <section id="pitch">
+    <h2>60 秒项目介绍模板</h2>
+    <div class="card highlight">
+      <p>“这是一个 Unity 2D 横版动作 RPG Demo。原项目已经有玩家和敌人状态机、属性、元素状态与技能树，但战斗只能进行，缺少完整结算，而且存在多个运行时稳定性问题。</p>
+      <p>我新增了单局战斗流程控制层：它在战斗场景加载后自动启动，通过订阅每个 Health 的实例死亡事件统计敌人，区分 Victory、Defeat 和 Pause，并提供 UI 与重开。Health 仍只负责生命规则，没有直接依赖 UI。</p>
+      <p>同时我修复了多 Collider 重复伤害、闪避后仍挂状态、百分比单位错误、生成物重复爆炸、状态切换后旧逻辑继续执行，以及动画事件缺失导致卡状态等问题。最后我写了 Unity Play Mode 冒烟测试，真实打开场景并自动验证暂停、恢复、致命伤害、死亡和最终胜利链路。当前下一步会把敌人动态注册和 HUD Prefab 化。”</p>
+    </div>
+
+    <h3>自测：不展开源码回答</h3>
+    <ol>
+      <li>画出 Enemy_Health 死亡到 Victory 面板出现的完整调用链。</li>
+      <li>解释为什么 ChangeState 不会自动终止旧状态 Update。</li>
+      <li>举例说明这个项目里的两个幂等保护。</li>
+      <li>解释百分数 75 和运行时小数 0.75 的转换边界。</li>
+      <li>说明 Smoke Test 覆盖了什么、遗漏了什么。</li>
+      <li>如果加入动态刷怪，你最先改哪个接口？</li>
+    </ol>
+
+    <p class="footer">学习完成标准：能用自己的话讲清调用链和取舍；能承认当前边界；能从症状推回可能的生命周期、控制流或数据单位问题。</p>
+  </section>
+
+  <div class="module-nav">
+    <a href="../数据流动与场景/index.html">← 数据流动与场景</a>
+    <a href="../战斗系统/index.html">战斗系统</a>
+    <a href="../设计决策与面试/index.html">设计决策</a>
+    <a href="../index.html">总导航</a>
+  </div>
+</main>
+</body>
+</html>

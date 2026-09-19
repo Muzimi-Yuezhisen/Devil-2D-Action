@@ -12,18 +12,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 544ecf58f7159ee4abe167526cc02510, type: 3}
   m_Name: Default Stat Setup - Skeleton
   m_EditorClassIdentifier: 
-  maxHealth: 100
+  balanceNote: '目标：普通怪承受约 5 次玩家普攻，重型怪约 7 次；单次攻击约削减玩家 11% 生命。'
+  maxHealth: 80
   healthRegen: 0
-  attackSpeed: 1
-  damage: 10
+  attackSpeed: 0.9
+  damage: 16
   critChance: 0
   critPower: 150
   armorReduction: 0
   fireDamage: 0
   iceDamage: 0
   lightningDamage: 0
-  armor: 0
+  armor: 3
   evasion: 0
-  freResistance: 0
+  fireResistance: 0
   iceResistance: 0
   lightningResistance: 0
+  strength: 2
+  agility: 0
+  intelligence: 0
+  vitality: 1

@@ -13,6 +13,6 @@ MonoBehaviour:
   m_Name: Skill data - Quick thinking
   m_EditorClassIdentifier: 
   cost: 3
-  displayName: Quick thinking
-  description: The healing wisp reduces cooldowns of your other skills by 1 second.
+  displayName: 灵光一闪
+  description: 治愈微光使其他技能的冷却时间减少 1 秒。
   icon: {fileID: -1605147806, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}

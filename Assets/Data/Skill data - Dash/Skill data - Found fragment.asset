@@ -12,11 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ecaa68a369f6cfc438a255cb384b92c6, type: 3}
   m_Name: Skill data - Found fragment
   m_EditorClassIdentifier: 
-  displayName: Found fragment
-  description: 'Create a time shard on arrival.
-
-    (Inherits all upgrades of Time
-    shard Ability)'
+  displayName: 落点碎片
+  description: 抵达冲刺终点时生成时光碎片，并继承时光碎片分支的全部强化。
   icon: {fileID: 522679889, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}
   cost: 3
   unlockedByDefault: 0

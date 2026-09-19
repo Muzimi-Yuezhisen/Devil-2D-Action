@@ -13,6 +13,6 @@ MonoBehaviour:
   m_Name: Skill data - Timeless attack
   m_EditorClassIdentifier: 
   cost: 2
-  displayName: Timeless attack
-  description: The Time echo can perform 1 attack.
+  displayName: 回响袭击
+  description: 时光回响能够发动 1 次攻击。
   icon: {fileID: 452752024, guid: 7ae0115109b4a6f42a4f7ad59397d09b, type: 3}
